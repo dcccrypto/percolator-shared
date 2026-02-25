@@ -1,5 +1,5 @@
 node_modules/
-dist/
+# dist/ — tracked for git-dep consumers that skip prepare
 *.tsbuildinfo
 .env
 .env.local

@@ -68,6 +68,7 @@ export interface OraclePriceRow {
 export declare function getMarkets(): Promise<MarketRow[]>;
 export declare function getMarketBySlabAddress(slabAddress: string): Promise<MarketRow | null>;
 export declare function insertMarket(market: Omit<MarketRow, "id" | "created_at" | "updated_at">): Promise<void>;
+export declare function updateMarketDecimals(slabAddress: string, decimals: number): Promise<void>;
 export declare function upsertMarketStats(stats: Partial<MarketStatsRow> & {
     slab_address: string;
 }): Promise<void>;

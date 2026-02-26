@@ -22,6 +22,14 @@ export async function insertMarket(market) {
         throw error;
     }
 }
+export async function updateMarketDecimals(slabAddress, decimals) {
+    const { error } = await getSupabase()
+        .from("markets")
+        .update({ decimals, updated_at: new Date().toISOString() })
+        .eq("slab_address", slabAddress);
+    if (error)
+        throw error;
+}
 export async function upsertMarketStats(stats) {
     const { error } = await getSupabase()
         .from("market_stats")

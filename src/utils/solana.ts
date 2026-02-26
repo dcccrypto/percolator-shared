@@ -1,8 +1,11 @@
 import { Connection, Keypair, Transaction, TransactionInstruction, SendOptions, ComputeBudgetProgram } from "@solana/web3.js";
 import bs58 from "bs58";
 import { acquireToken, getPrimaryConnection, getFallbackConnection, backoffMs } from "./rpc-client.js";
+import { createLogger } from "../logger.js";
 
 export { getPrimaryConnection as getConnection, getFallbackConnection };
+
+const logger = createLogger("rpc:send");
 
 // BH9: Maximum transaction size in bytes (Solana limit is 1232 bytes)
 const MAX_TRANSACTION_SIZE = 1232;
@@ -31,7 +34,7 @@ export async function getRecentPriorityFees(connection: Connection): Promise<{
     const recentFees = await connection.getRecentPrioritizationFees();
     
     if (recentFees.length === 0) {
-      console.warn("[getRecentPriorityFees] No recent fees found, using defaults");
+      logger.warn("No recent priority fees found, using defaults");
       return { priorityFeeMicroLamports: 10_000, computeUnitLimit: 400_000 };
     }
     
@@ -50,7 +53,7 @@ export async function getRecentPriorityFees(connection: Connection): Promise<{
     
     return { priorityFeeMicroLamports: finalFee, computeUnitLimit };
   } catch (err) {
-    console.warn("[getRecentPriorityFees] Failed to fetch priority fees:", err);
+    logger.warn("Failed to fetch priority fees, using defaults", { error: err instanceof Error ? err.message : String(err) });
     return { priorityFeeMicroLamports: 10_000, computeUnitLimit: 400_000 };
   }
 }
@@ -149,7 +152,14 @@ export async function sendWithRetry(
       const delay = is429(err)
         ? backoffMs(attempt, 2000, 30_000)
         : Math.min(1000 * 2 ** attempt, 8000);
-      console.warn(`[sendWithRetry] Attempt ${attempt + 1}/${maxRetries} failed, retrying in ${Math.round(delay)}ms`);
+      // PERC-213: Structured log visible in Railway dashboard
+      logger.warn("sendWithRetry attempt failed", {
+        attempt: attempt + 1,
+        maxRetries,
+        delayMs: Math.round(delay),
+        error: lastErr instanceof Error ? lastErr.message.slice(0, 120) : String(lastErr).slice(0, 120),
+        is429: is429(lastErr),
+      });
       await new Promise((r) => setTimeout(r, delay));
     }
   }

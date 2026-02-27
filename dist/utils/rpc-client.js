@@ -1,5 +1,7 @@
 import { Connection } from "@solana/web3.js";
 import { config } from "../config.js";
+import { createLogger } from "../logger.js";
+const logger = createLogger("rpc");
 const MAX_TOKENS = 10;
 const REFILL_INTERVAL_MS = 1_000;
 let tokens = MAX_TOKENS;
@@ -8,6 +10,18 @@ let lastRefill = Date.now();
 const SLIDING_WINDOW_MS = 10_000; // 10 second window
 const MAX_REQUESTS_PER_WINDOW = 100; // Max 100 requests per 10s
 const requestTimestamps = [];
+// PERC-213: Fallback usage counters for Railway monitoring
+let _primaryFailCount = 0;
+let _fallbackSuccessCount = 0;
+let _fallbackFailCount = 0;
+/** Expose fallback stats for health endpoints */
+export function getRpcFallbackStats() {
+    return {
+        primaryFailCount: _primaryFailCount,
+        fallbackSuccessCount: _fallbackSuccessCount,
+        fallbackFailCount: _fallbackFailCount,
+    };
+}
 function checkSlidingWindow() {
     const now = Date.now();
     const windowStart = now - SLIDING_WINDOW_MS;
@@ -115,11 +129,31 @@ export async function rateLimitedCall(fn, options) {
         }
         catch (err) {
             if (is429(err) && readOnly) {
+                // PERC-213: Log RPC fallback trigger so it's visible in Railway dashboard
+                _primaryFailCount++;
+                const errMsg = err instanceof Error ? err.message : String(err);
+                logger.warn("Primary RPC rate-limited, falling back to secondary RPC", {
+                    primaryFailCount: _primaryFailCount,
+                    attempt: attempt + 1,
+                    error: errMsg.slice(0, 120),
+                    primaryUrl: config.rpcUrl.replace(/\/\/[^/]+/, "//***"),
+                    fallbackUrl: config.fallbackRpcUrl.replace(/\/\/[^/]+/, "//***"),
+                });
                 try {
-                    return await fn(getFallbackConnection());
+                    const result = await fn(getFallbackConnection());
+                    _fallbackSuccessCount++;
+                    logger.info("Fallback RPC succeeded", {
+                        fallbackSuccessCount: _fallbackSuccessCount,
+                    });
+                    return result;
                 }
                 catch (fe) {
-                    console.warn("[RPC] Fallback failed:", fe);
+                    _fallbackFailCount++;
+                    const fallbackErrMsg = fe instanceof Error ? fe.message : String(fe);
+                    logger.error("Fallback RPC also failed", {
+                        fallbackFailCount: _fallbackFailCount,
+                        error: fallbackErrMsg.slice(0, 120),
+                    });
                 }
             }
             if (attempt < maxRetries - 1) {

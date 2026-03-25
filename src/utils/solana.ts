@@ -165,3 +165,82 @@ export async function sendWithRetry(
   }
   throw lastErr;
 }
+
+/**
+ * sendWithRetryKeeper — multi-instruction transaction sender optimised for keeper services.
+ *
+ * Differences vs sendWithRetry:
+ *   - Accepts a list of TransactionInstruction[] (multiple instructions per tx)
+ *   - skipPreflight=true to save ~20-50 ms per attempt (keeper already validates pre-send)
+ *   - Falls back to the secondary RPC on network errors for higher landing rate
+ *
+ * Used by CrankService and LiquidationService (PERC-204).
+ *
+ * @param connection   Primary Solana connection
+ * @param ixs          Instructions to pack into one transaction
+ * @param signers      Keypairs; signers[0] is the fee-payer
+ * @param maxRetries   Number of retries (default 3)
+ * @returns            Transaction signature string
+ */
+export async function sendWithRetryKeeper(
+  connection: Connection,
+  ixs: TransactionInstruction[],
+  signers: Keypair[],
+  maxRetries = 3,
+): Promise<string> {
+  let lastErr: unknown;
+
+  // Fetch priority fees once outside the retry loop
+  const { priorityFeeMicroLamports, computeUnitLimit } = await getRecentPriorityFees(connection);
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    // On retries after a network error, try fallback RPC
+    const conn = attempt === 0 ? connection : getFallbackConnection();
+
+    try {
+      await acquireToken();
+      const tx = new Transaction();
+
+      // Compute budget first (improves queue priority)
+      tx.add(
+        ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit }),
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: priorityFeeMicroLamports }),
+      );
+
+      for (const ix of ixs) {
+        tx.add(ix);
+      }
+
+      const { blockhash } = await conn.getLatestBlockhash("confirmed");
+      tx.recentBlockhash = blockhash;
+      tx.feePayer = signers[0].publicKey;
+      tx.sign(...signers);
+
+      // Validate size before sending
+      checkTransactionSize(tx);
+
+      await acquireToken();
+      const sig = await conn.sendRawTransaction(tx.serialize(), {
+        skipPreflight: true, // Keeper validates pre-send; skip for speed
+        preflightCommitment: "confirmed",
+      });
+
+      await pollSignatureStatus(conn, sig);
+      return sig;
+    } catch (err) {
+      lastErr = err;
+      const delay = is429(err)
+        ? backoffMs(attempt, 2000, 30_000)
+        : Math.min(1000 * 2 ** attempt, 8000);
+      logger.warn("sendWithRetryKeeper attempt failed", {
+        attempt: attempt + 1,
+        maxRetries,
+        delayMs: Math.round(delay),
+        error: lastErr instanceof Error ? lastErr.message.slice(0, 120) : String(lastErr).slice(0, 120),
+        is429: is429(lastErr),
+      });
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
+}

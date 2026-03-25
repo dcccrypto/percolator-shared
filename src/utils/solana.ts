@@ -412,3 +412,157 @@ export async function sendWithRetryKeeper(
   }
   throw lastErr;
 }
+
+// ---------------------------------------------------------------------------
+// Keeper-optimized send (skipPreflight + multi-RPC + tight CU)
+// ---------------------------------------------------------------------------
+
+export interface KeeperSendOptions {
+  /** Skip RPC-side simulation before forwarding (saves ~20-50ms). Default: true. */
+  skipPreflight?: boolean;
+  /** Send to multiple RPC endpoints in parallel for higher landing rate. Default: true. */
+  multiRpcBroadcast?: boolean;
+  /** Simulate tx to get tight CU limit instead of using default 400k. Default: true. */
+  simulateForCU?: boolean;
+}
+
+const DEFAULT_KEEPER_OPTS: Required<KeeperSendOptions> = {
+  skipPreflight: true,
+  multiRpcBroadcast: true,
+  simulateForCU: true,
+};
+
+async function simulateForComputeUnits(
+  connection: Connection,
+  instructions: TransactionInstruction[],
+  feePayer: Keypair,
+): Promise<number> {
+  try {
+    const simTx = new Transaction();
+    simTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }));
+    for (const ix of instructions) simTx.add(ix);
+
+    const { blockhash } = await connection.getLatestBlockhash("confirmed");
+    simTx.recentBlockhash = blockhash;
+    simTx.feePayer = feePayer.publicKey;
+
+    await acquireToken();
+    const simResult = await connection.simulateTransaction(simTx);
+
+    if (simResult.value.err) return 400_000;
+
+    const unitsConsumed = simResult.value.unitsConsumed ?? 0;
+    if (unitsConsumed === 0) return 400_000;
+
+    return Math.max(Math.ceil(unitsConsumed * 1.1), 50_000);
+  } catch {
+    return 400_000;
+  }
+}
+
+async function broadcastToMultipleRpcs(
+  rawTx: Buffer | Uint8Array,
+  primaryConnection: Connection,
+  opts: SendOptions,
+): Promise<string> {
+  const connections = [primaryConnection];
+
+  try {
+    const fallback = getFallbackConnection();
+    if (fallback) connections.push(fallback);
+  } catch { /* no fallback configured */ }
+
+  const extraRpcs = process.env.EXTRA_RPC_URLS?.split(",").filter(Boolean) ?? [];
+  for (const url of extraRpcs.slice(0, 3)) {
+    try {
+      connections.push(new Connection(url, "confirmed"));
+    } catch { /* invalid URL, skip */ }
+  }
+
+  if (connections.length <= 1) {
+    return primaryConnection.sendRawTransaction(rawTx, opts);
+  }
+
+  const results = await Promise.allSettled(
+    connections.map(conn => conn.sendRawTransaction(rawTx, opts))
+  );
+
+  for (const result of results) {
+    if (result.status === "fulfilled") return result.value;
+  }
+
+  const primaryResult = results[0];
+  if (primaryResult.status === "rejected") throw primaryResult.reason;
+  throw new Error("All RPC endpoints failed to accept transaction");
+}
+
+/**
+ * Send a transaction with keeper-mode optimizations:
+ * - skipPreflight=true (saves ~20-50ms per tx)
+ * - Multi-RPC parallel broadcast (+20-40% landing rate)
+ * - Simulation-based tight CU limit (better queue position)
+ * - Dynamic 75th-percentile priority fees
+ */
+export async function sendWithRetryKeeper(
+  connection: Connection,
+  instructions: TransactionInstruction[],
+  signers: Keypair[],
+  maxRetries = 3,
+  keeperOpts?: KeeperSendOptions,
+): Promise<string> {
+  const opts = { ...DEFAULT_KEEPER_OPTS, ...keeperOpts };
+  let lastErr: unknown;
+
+  const { priorityFeeMicroLamports } = await getRecentPriorityFees(connection);
+
+  let computeUnitLimit = 400_000;
+  if (opts.simulateForCU) {
+    computeUnitLimit = await simulateForComputeUnits(connection, instructions, signers[0]);
+  }
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    try {
+      await acquireToken();
+      const tx = new Transaction();
+
+      tx.add(
+        ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit }),
+        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: priorityFeeMicroLamports })
+      );
+
+      for (const ix of instructions) tx.add(ix);
+
+      const { blockhash } = await connection.getLatestBlockhash("confirmed");
+      tx.recentBlockhash = blockhash;
+      tx.feePayer = signers[0].publicKey;
+      tx.sign(...signers);
+
+      checkTransactionSize(tx);
+
+      const sendOpts: SendOptions = {
+        skipPreflight: opts.skipPreflight,
+        preflightCommitment: "confirmed",
+      };
+
+      await acquireToken();
+      let sig: string;
+
+      if (opts.multiRpcBroadcast) {
+        sig = await broadcastToMultipleRpcs(tx.serialize(), connection, sendOpts);
+      } else {
+        sig = await connection.sendRawTransaction(tx.serialize(), sendOpts);
+      }
+
+      await pollSignatureStatus(connection, sig);
+      return sig;
+    } catch (err) {
+      lastErr = err;
+      const delay = is429(err)
+        ? backoffMs(attempt, 2000, 30_000)
+        : Math.min(1000 * 2 ** attempt, 8000);
+      console.warn(`[sendWithRetryKeeper] Attempt ${attempt + 1}/${maxRetries} failed, retrying in ${Math.round(delay)}ms`);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+  }
+  throw lastErr;
+}

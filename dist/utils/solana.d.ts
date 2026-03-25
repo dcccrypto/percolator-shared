@@ -22,3 +22,20 @@ export declare function checkTransactionSize(tx: Transaction): void;
  */
 export declare function pollSignatureStatus(connection: Connection, signature: string, timeoutMs?: number): Promise<void>;
 export declare function sendWithRetry(connection: Connection, ix: TransactionInstruction, signers: Keypair[], maxRetries?: number): Promise<string>;
+/**
+ * sendWithRetryKeeper — multi-instruction transaction sender optimised for keeper services.
+ *
+ * Differences vs sendWithRetry:
+ *   - Accepts a list of TransactionInstruction[] (multiple instructions per tx)
+ *   - skipPreflight=true to save ~20-50 ms per attempt (keeper already validates pre-send)
+ *   - Falls back to the secondary RPC on network errors for higher landing rate
+ *
+ * Used by CrankService and LiquidationService (PERC-204).
+ *
+ * @param connection   Primary Solana connection
+ * @param ixs          Instructions to pack into one transaction
+ * @param signers      Keypairs; signers[0] is the fee-payer
+ * @param maxRetries   Number of retries (default 3)
+ * @returns            Transaction signature string
+ */
+export declare function sendWithRetryKeeper(connection: Connection, ixs: TransactionInstruction[], signers: Keypair[], maxRetries?: number): Promise<string>;

@@ -17,6 +17,8 @@ export interface MarketRow {
   status: string;
   created_at: string;
   updated_at: string;
+  /** Set to true by the indexer when a slab is persistently corrupt and should be excluded from polling. */
+  indexer_excluded?: boolean;
 }
 
 export interface MarketStatsRow {

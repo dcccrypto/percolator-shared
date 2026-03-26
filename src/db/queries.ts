@@ -15,6 +15,8 @@ export interface MarketRow {
   lp_collateral: string | null;
   matcher_context: string | null;
   status: string;
+  /** GH#1218: When true, the indexer skips this slab (on-chain state permanently corrupt). */
+  indexer_excluded?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -52,6 +54,8 @@ export interface MarketStatsRow {
   liquidation_fee_bps: number | null;
   liquidation_fee_cap: string | null;
   liquidation_buffer_bps: number | null;
+  // Volume sync fields (migration 012)
+  trade_count_24h: number | null;
   updated_at: string | null;
 }
 

@@ -15,11 +15,9 @@ export interface MarketRow {
   lp_collateral: string | null;
   matcher_context: string | null;
   status: string;
-  /** GH#1218: When true, the indexer skips this slab (on-chain state permanently corrupt). */
-  indexer_excluded?: boolean;
   created_at: string;
   updated_at: string;
-  /** Set to true by the indexer when a slab is persistently corrupt and should be excluded from polling. */
+  /** GH#1218: when true the indexer must NOT write market_stats for this slab (on-chain state is corrupt). */
   indexer_excluded?: boolean;
 }
 
@@ -102,19 +100,12 @@ export async function insertMarket(market: Omit<MarketRow, "id" | "created_at" |
   }
 }
 
-export async function updateMarketDecimals(slabAddress: string, decimals: number): Promise<void> {
-  const { error } = await getSupabase()
-    .from("markets")
-    .update({ decimals, updated_at: new Date().toISOString() })
-    .eq("slab_address", slabAddress);
-  if (error) throw error;
-}
-
 export async function upsertMarketStats(stats: Partial<MarketStatsRow> & { slab_address: string }): Promise<void> {
   const { error } = await getSupabase()
     .from("market_stats")
     .upsert(stats, { onConflict: "slab_address" });
-  if (error) throw error;
+  // Ignore FK violations (23503) — slab may not be in markets table yet
+  if (error && error.code !== "23503") throw error;
 }
 
 export async function insertTrade(trade: Omit<TradeRow, "id" | "created_at">): Promise<void> {
@@ -143,7 +134,8 @@ export async function insertOraclePrice(price: OraclePriceRow): Promise<void> {
     timestamp: price.timestamp,
     tx_signature: price.tx_signature ?? null,
   });
-  if (error) throw error;
+  // Ignore FK violations (23503) — market may not be in DB yet
+  if (error && error.code !== "23503") throw error;
 }
 
 export async function getRecentTrades(slabAddress: string, limit = 50): Promise<TradeRow[]> {

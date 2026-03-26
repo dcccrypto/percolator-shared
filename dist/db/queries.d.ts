@@ -49,7 +49,6 @@ export interface MarketStatsRow {
     liquidation_fee_bps: number | null;
     liquidation_fee_cap: string | null;
     liquidation_buffer_bps: number | null;
-    trade_count_24h: number | null;
     updated_at: string | null;
 }
 export interface TradeRow {

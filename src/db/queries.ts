@@ -104,8 +104,15 @@ export async function upsertMarketStats(stats: Partial<MarketStatsRow> & { slab_
   const { error } = await getSupabase()
     .from("market_stats")
     .upsert(stats, { onConflict: "slab_address" });
-  // Ignore FK violations (23503) — slab may not be in markets table yet
-  if (error && error.code !== "23503") throw error;
+  if (error) {
+    if (error.code === "23503") {
+      // FK violation: slab not yet registered in markets table.
+      // Log a warning so the gap is visible (GH#1748 — SKR slab was silently dropped).
+      console.warn(`[upsertMarketStats] FK miss for slab ${stats.slab_address} — market not yet in DB. Stats not written.`);
+      return;
+    }
+    throw error;
+  }
 }
 
 export async function insertTrade(trade: Omit<TradeRow, "id" | "created_at">): Promise<void> {

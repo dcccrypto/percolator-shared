@@ -13,11 +13,9 @@ export interface MarketRow {
     lp_collateral: string | null;
     matcher_context: string | null;
     status: string;
-    /** GH#1218: When true, the indexer skips this slab (on-chain state permanently corrupt). */
-    indexer_excluded?: boolean;
     created_at: string;
     updated_at: string;
-    /** Set to true by the indexer when a slab is persistently corrupt and should be excluded from polling. */
+    /** GH#1218: when true the indexer must NOT write market_stats for this slab (on-chain state is corrupt). */
     indexer_excluded?: boolean;
 }
 export interface MarketStatsRow {
@@ -73,7 +71,6 @@ export interface OraclePriceRow {
 export declare function getMarkets(): Promise<MarketRow[]>;
 export declare function getMarketBySlabAddress(slabAddress: string): Promise<MarketRow | null>;
 export declare function insertMarket(market: Omit<MarketRow, "id" | "created_at" | "updated_at">): Promise<void>;
-export declare function updateMarketDecimals(slabAddress: string, decimals: number): Promise<void>;
 export declare function upsertMarketStats(stats: Partial<MarketStatsRow> & {
     slab_address: string;
 }): Promise<void>;

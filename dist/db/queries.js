@@ -22,19 +22,12 @@ export async function insertMarket(market) {
         throw error;
     }
 }
-export async function updateMarketDecimals(slabAddress, decimals) {
-    const { error } = await getSupabase()
-        .from("markets")
-        .update({ decimals, updated_at: new Date().toISOString() })
-        .eq("slab_address", slabAddress);
-    if (error)
-        throw error;
-}
 export async function upsertMarketStats(stats) {
     const { error } = await getSupabase()
         .from("market_stats")
         .upsert(stats, { onConflict: "slab_address" });
-    if (error)
+    // Ignore FK violations (23503) — slab may not be in markets table yet
+    if (error && error.code !== "23503")
         throw error;
 }
 export async function insertTrade(trade) {
@@ -62,7 +55,8 @@ export async function insertOraclePrice(price) {
         timestamp: price.timestamp,
         tx_signature: price.tx_signature ?? null,
     });
-    if (error)
+    // Ignore FK violations (23503) — market may not be in DB yet
+    if (error && error.code !== "23503")
         throw error;
 }
 export async function getRecentTrades(slabAddress, limit = 50) {

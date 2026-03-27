@@ -1,9 +1,23 @@
 /**
- * errors.ts — Type-safe error handling utilities for Percolator services.
+ * Type-safe error handling utilities for Percolator services.
  *
- * Provides structured error types and type guards to replace generic `unknown`
- * error typing throughout the codebase, and the `getErrorMessage` helper used
- * by keeper services.
+ * Provides structured error types and type guards to replace generic `unknown` error typing
+ * throughout the codebase. Enables better error handling with compile-time type safety.
+ */
+/**
+ * Type guard to check if error is an ApiError.
+ *
+ * @param e - Unknown error value to check
+ * @returns True if error has ApiError structure (status, code, message)
+ *
+ * @example
+ * try {
+ *   await risky();
+ * } catch (err) {
+ *   if (isApiError(err)) {
+ *     logger.error("API error", { code: err.code, message: err.message });
+ *   }
+ * }
  */
 export function isApiError(e) {
     return (typeof e === "object" &&
@@ -12,12 +26,24 @@ export function isApiError(e) {
         typeof e.code === "string" &&
         typeof e.message === "string");
 }
+/**
+ * Type guard to check if error is a ValidationError.
+ *
+ * @param e - Unknown error value to check
+ * @returns True if error has ValidationError structure (code, message)
+ */
 export function isValidationError(e) {
     return (typeof e === "object" &&
         e !== null &&
         typeof e.code === "string" &&
         typeof e.message === "string");
 }
+/**
+ * Type guard to check if error is an RpcError.
+ *
+ * @param e - Unknown error value to check
+ * @returns True if error has RpcError structure (code, message)
+ */
 export function isRpcError(e) {
     return (typeof e === "object" &&
         e !== null &&
@@ -26,7 +52,20 @@ export function isRpcError(e) {
 }
 /**
  * Extract a safe error message from any error type.
- * Always returns a non-empty string — safe to log or send to Discord alerts.
+ *
+ * Handles:
+ * - ApiError: returns message
+ * - ValidationError: returns message
+ * - Error: returns message
+ * - Objects with message property: returns message
+ * - Fallback: returns "Unknown error"
+ *
+ * @param e - Unknown error value
+ * @returns Safe, non-empty error message string
+ *
+ * @example
+ * const msg = getErrorMessage(err);
+ * logger.error(msg);  // Always safe to use
  */
 export function getErrorMessage(e) {
     if (isApiError(e))
@@ -44,6 +83,22 @@ export function getErrorMessage(e) {
         return e;
     return "Unknown error";
 }
+/**
+ * Extract error code from any error type.
+ *
+ * Handles:
+ * - ApiError: returns code
+ * - ValidationError: returns code
+ * - RpcError: returns code
+ * - Fallback: returns "UNKNOWN"
+ *
+ * @param e - Unknown error value
+ * @returns Error code string for tracking/metrics
+ *
+ * @example
+ * const code = getErrorCode(err);
+ * metrics.increment(`error.${code}`);
+ */
 export function getErrorCode(e) {
     if (isApiError(e))
         return e.code;
@@ -53,6 +108,25 @@ export function getErrorCode(e) {
         return `RPC_${e.code}`;
     return "UNKNOWN";
 }
+/**
+ * Create a structured ApiError from various error types.
+ *
+ * Converts any error into a consistent ApiError structure suitable
+ * for API responses and logging.
+ *
+ * @param input - Error value to convert
+ * @param defaultStatus - Default HTTP status if not determinable (default: 500)
+ * @param context - Additional context to include in error
+ * @returns Structured ApiError
+ *
+ * @example
+ * try {
+ *   await risky();
+ * } catch (err) {
+ *   const apiErr = toApiError(err, 500, { operation: "create-market" });
+ *   res.status(apiErr.status).json({ error: apiErr.message });
+ * }
+ */
 export function toApiError(input, defaultStatus = 500, context) {
     if (isApiError(input)) {
         return { ...input, context: { ...input.context, ...context } };
@@ -66,10 +140,37 @@ export function toApiError(input, defaultStatus = 500, context) {
         };
     }
     if (input instanceof Error) {
-        return { status: defaultStatus, code: input.name || "ERROR", message: input.message, context, cause: input };
+        return {
+            status: defaultStatus,
+            code: input.name || "ERROR",
+            message: input.message,
+            context,
+            cause: input,
+        };
     }
-    return { status: defaultStatus, code: "UNKNOWN", message: getErrorMessage(input), context };
+    return {
+        status: defaultStatus,
+        code: "UNKNOWN",
+        message: getErrorMessage(input),
+        context,
+    };
 }
+/**
+ * Create a structured ValidationError.
+ *
+ * @param code - Error code for this validation class
+ * @param message - Main validation error message
+ * @param fields - Optional field-level errors keyed by field name
+ * @param context - Additional context
+ * @returns ValidationError
+ *
+ * @example
+ * throw createValidationError(
+ *   "INVALID_AMOUNT",
+ *   "Amount validation failed",
+ *   { amount: "must be positive", decimals: "exceeds token precision" }
+ * );
+ */
 export function createValidationError(code, message, fields, context) {
     return { code, message, fields, context };
 }

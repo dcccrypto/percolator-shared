@@ -17,7 +17,8 @@ catch {
     // In test environments the NETWORK / PROGRAM_ID vars are usually unset.
     // Fall back to safe devnet defaults so the config module stays importable.
     networkConfig = {
-        rpcUrl: env.RPC_URL ?? `https://devnet.helius-rpc.com/?api-key=${env.HELIUS_API_KEY ?? ""}`,
+        // PERC-469: prefer network-specific key, fall back to generic
+        rpcUrl: env.RPC_URL ?? `https://devnet.helius-rpc.com/?api-key=${env.HELIUS_DEVNET_API_KEY ?? env.HELIUS_API_KEY ?? ""}`,
         programIds: [env.PROGRAM_ID ?? "FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD"],
     };
 }
@@ -32,11 +33,14 @@ export const config = {
         "FwfBKZXbYr4vTK23bMFkbgKq3npJ3MSDxEaKmq9Aj4Qn",
         "g9msRSV3sJmmE3r5Twn9HuBsxzuuRGTjKCVTKudm9in",
     ].join(",")).split(",").filter(Boolean),
-    crankKeypair: env.CRANK_KEYPAIR ?? "",
+    // NOTE: Private key is NOT stored in config anymore.
+    // Use getSealedSigner() from signer.ts to get signing capability.
+    // Raw key material never exposed; only sign() interface provided.
     supabaseUrl: env.SUPABASE_URL ?? "",
     supabaseKey: env.SUPABASE_KEY ?? "",
     supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY ?? "",
-    heliusApiKey: env.HELIUS_API_KEY ?? "",
+    // PERC-469: heliusApiKey exposes the devnet key for internal service use (not browser)
+    heliusApiKey: (process.env.HELIUS_DEVNET_API_KEY ?? env.HELIUS_API_KEY ?? ""),
     fallbackRpcUrl: env.FALLBACK_RPC_URL ?? "https://api.devnet.solana.com",
     port: env.PORT ?? 3001,
     crankIntervalMs: env.CRANK_INTERVAL_MS ?? 30_000,

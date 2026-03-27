@@ -1,6 +1,10 @@
 import { z } from "zod";
 /**
- * Base58 address schema (32-44 chars, base58 charset only)
+ * Base58 address schema for Solana public keys.
+ * GH#1667: string-length bounds (32-44) are sufficient because a 32-byte
+ * key cannot exceed 44 base58 chars mathematically. The regex rejects
+ * non-base58 characters. Actual 32-byte decode validation happens at the
+ * API layer via `new PublicKey(addr)`.
  */
 export const slabAddressSchema = z
     .string()
@@ -30,7 +34,9 @@ const envSchemaBase = z.object({
     NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
     RPC_URL: z.string().url().optional(),
     FALLBACK_RPC_URL: z.string().url().optional(),
-    HELIUS_API_KEY: z.string().optional(),
+    HELIUS_API_KEY: z.string().optional(), // legacy fallback — prefer HELIUS_DEVNET/MAINNET_API_KEY
+    HELIUS_DEVNET_API_KEY: z.string().optional(),
+    HELIUS_MAINNET_API_KEY: z.string().optional(),
     SUPABASE_URL: z.string().url().optional(),
     SUPABASE_KEY: z.string().optional(),
     SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),

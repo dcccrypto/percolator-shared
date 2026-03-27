@@ -4,7 +4,6 @@ export declare const config: {
     readonly programId: string;
     /** Comma-separated list of all program IDs to scan for markets */
     readonly allProgramIds: string[];
-    readonly crankKeypair: string;
     readonly supabaseUrl: string;
     readonly supabaseKey: string;
     readonly supabaseServiceRoleKey: string;

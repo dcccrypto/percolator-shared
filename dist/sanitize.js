@@ -1,4 +1,20 @@
 /**
+ * Truncate error messages to a safe length for logs and API responses
+ * Default: 120 chars for logs, 200 chars for API responses
+ */
+export function truncateErrorMessage(msg, maxLength = 120) {
+    const str = typeof msg === "string" ? msg : String(msg);
+    if (!str)
+        return "";
+    // Remove null bytes and control chars
+    let sanitized = sanitizeString(str, maxLength);
+    // Truncate to maxLength
+    if (sanitized.length > maxLength) {
+        sanitized = sanitized.slice(0, maxLength) + "...";
+    }
+    return sanitized;
+}
+/**
  * Input sanitization utilities for API security
  */
 const BASE58_REGEX = /^[1-9A-HJ-NP-Za-km-z]+$/;
@@ -74,6 +90,46 @@ export function sanitizePagination(limit, offset) {
     safeOffset = Math.max(0, Math.min(safeOffset, MAX_OFFSET));
     return { limit: safeLimit, offset: safeOffset };
 }
+// ── BigInt sanitization for on-chain → DB conversion ──────────────────────
+/** PostgreSQL bigint max: 2^63 − 1 */
+const PG_BIGINT_MAX = 9223372036854775807n;
+/** Solana u64::MAX sentinel value */
+const U64_MAX = 18446744073709551615n;
+/** Anything ≥ 90% of u64::MAX is treated as a sentinel / uninitialized field */
+const SENTINEL_THRESHOLD = (U64_MAX * 9n) / 10n; // ~16.6 × 10^18
+/**
+ * Sanitize a bigint value before converting to Number for DB insertion.
+ *
+ * Handles three failure modes:
+ *  1. u64::MAX sentinel values (uninitialized on-chain fields) → returns `fallback`
+ *  2. Values exceeding PostgreSQL bigint range (±2^63 − 1) → returns `fallback`
+ *  3. Values exceeding Number.MAX_SAFE_INTEGER → returns `fallback` (precision loss)
+ *
+ * This prevents the "value X out of range for type bigint" Postgres errors
+ * that occur when on-chain slab fields contain u64::MAX sentinels.
+ */
+export function sanitizeBigIntForDb(value, fallback = 0) {
+    // Detect u64::MAX sentinel or near-sentinel values
+    if (value >= SENTINEL_THRESHOLD)
+        return fallback;
+    // Detect negative sentinel-like values (i64-reinterpreted or underflows)
+    if (value <= -SENTINEL_THRESHOLD)
+        return fallback;
+    // Clamp to PostgreSQL bigint range
+    if (value > PG_BIGINT_MAX || value < -PG_BIGINT_MAX)
+        return fallback;
+    return Number(value);
+}
+/**
+ * Sanitize a bigint value to a string for DB text/numeric columns.
+ * Same sentinel detection as sanitizeBigIntForDb, but preserves full precision
+ * for fields stored as text (e.g. net_lp_pos, maintenance_fee_per_slot).
+ */
+export function sanitizeBigIntToString(value, fallback = "0") {
+    if (value >= SENTINEL_THRESHOLD || value <= -SENTINEL_THRESHOLD)
+        return fallback;
+    return value.toString();
+}
 /**
  * Sanitize a numeric parameter (price, amount, etc.)
  * Returns null if invalid
@@ -103,4 +159,22 @@ export function sanitizeNumber(input, min, max) {
         return null;
     }
     return num;
+}
+/**
+ * Mask API keys in URLs and connection strings before logging
+ * Prevents accidental exposure of secrets in logs, error messages, and console output
+ *
+ * Handles patterns like:
+ *  - https://devnet.helius-rpc.com/?api-key=YOUR_KEY
+ *  - http://localhost:8899?api_key=SECRET
+ *  - rpc_url=secret_key_here
+ */
+export function maskApiKeys(input) {
+    if (typeof input !== "string") {
+        return "";
+    }
+    // Replace all variations of api_key, api-key, apiKey with masked value
+    // Matches: api-key=xxx, api_key=xxx, apiKey=xxx (case-insensitive)
+    // Stops at &, space, quote, or end of string (non-greedy)
+    return input.replace(/api[_-]?key\s*=\s*[^\s&"'`;,)]*(?=[&\s"'`;,)\n]|$)/gi, "api-key=***");
 }

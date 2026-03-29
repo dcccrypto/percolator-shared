@@ -566,3 +566,106 @@ export async function sendWithRetryKeeper(
   }
   throw lastErr;
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+// Helius-Optimized Transaction Sending (Sender API + Priority Fee Estimate)
+// ═════════════════════════════════════════════════════════════════════════════
+
+/** Jito tip accounts for Sender API transactions */
+const JITO_TIP_ACCOUNTS = [
+  "4ACfpUFoaSD9bfPdeu6DBt89gB6ENTeHBXCAi87NhDEE",
+  "D2L6yPZ2FmmmTKPgzaMKdhu6EWZcTpLy1Vhx8uvZe7NZ",
+  "9bnz4RShgq1hAnLnZbP8kbgBg1kEmcJBYQq3gQbmnSta",
+  "5VY91ws6B2hMmBFRsXkoAAdsPHBJwRfBht4DXox3xkwn",
+  "2nyhqdwKcJZR2vcqCyrYsaPVdAnFoJjiksCXJ7hfEYgD",
+];
+
+/**
+ * Get priority fee estimate from Helius API (program-specific, more accurate than getRecentPrioritizationFees).
+ * Falls back to 10,000 microLamports if Helius API unavailable.
+ */
+export async function getHeliusPriorityFee(
+  rpcUrl: string,
+  accountKeys: string[],
+  level: "Min" | "Low" | "Medium" | "High" | "VeryHigh" = "High",
+): Promise<number> {
+  try {
+    const res = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "getPriorityFeeEstimate",
+        params: [{ accountKeys, options: { priorityLevel: level } }],
+      }),
+    });
+    const data = await res.json();
+    if (data?.result?.priorityFeeEstimate) {
+      return Math.max(Math.ceil(data.result.priorityFeeEstimate), 1_000);
+    }
+    return 10_000;
+  } catch {
+    return 10_000;
+  }
+}
+
+/**
+ * Send a serialized transaction via Helius Sender API.
+ * Dual-routes to validators + Jito for maximum landing probability.
+ * Returns the transaction signature.
+ *
+ * Requirements: transaction MUST include a Jito tip instruction.
+ */
+export async function sendViaHeliusSender(
+  rpcUrl: string,
+  rawTx: Buffer | Uint8Array,
+): Promise<string> {
+  // Extract the base URL and API key from the RPC URL
+  const url = new URL(rpcUrl);
+  const apiKey = url.searchParams.get("api-key") || "";
+  const senderUrl = `https://sender.helius-rpc.com/fast?api-key=${apiKey}`;
+
+  const res = await fetch(senderUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "sendTransaction",
+      params: [
+        Buffer.from(rawTx).toString("base64"),
+        { encoding: "base64", skipPreflight: true, maxRetries: 0 },
+      ],
+    }),
+  });
+
+  const data = await res.json();
+  if (data?.error) {
+    throw new Error(`Helius Sender error: ${JSON.stringify(data.error)}`);
+  }
+  return data.result;
+}
+
+/**
+ * Pick a random Jito tip account.
+ */
+export function randomJitoTipAccount(): string {
+  return JITO_TIP_ACCOUNTS[Math.floor(Math.random() * JITO_TIP_ACCOUNTS.length)];
+}
+
+/**
+ * Create a Jito tip instruction (SOL transfer to tip account).
+ * Default: 200,000 lamports (0.0002 SOL) — minimum for Helius Sender dual-routing.
+ */
+export function createJitoTipInstruction(
+  payer: import("@solana/web3.js").PublicKey,
+  lamports = 200_000,
+): TransactionInstruction {
+  const tipAccount = new (require("@solana/web3.js").PublicKey)(randomJitoTipAccount());
+  return require("@solana/web3.js").SystemProgram.transfer({
+    fromPubkey: payer,
+    toPubkey: tipAccount,
+    lamports,
+  });
+}

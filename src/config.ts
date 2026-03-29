@@ -12,13 +12,14 @@ if (!process.env.VITEST && process.env.NODE_ENV !== "test") {
 const env = validateEnv();
 
 // Try network validation; fall back to defaults in test/dev when env vars are absent
-let networkConfig: { rpcUrl: string; programIds: string[] };
+let networkConfig: { rpcUrl: string; programIds: string[]; network: string };
 try {
   networkConfig = validateNetworkConfig(process.env as Record<string, string | undefined>);
 } catch {
   // In test environments the NETWORK / PROGRAM_ID vars are usually unset.
   // Fall back to safe devnet defaults so the config module stays importable.
   networkConfig = {
+    network: "devnet",
     // PERC-469: prefer network-specific key, fall back to generic
     rpcUrl: env.RPC_URL ?? `https://devnet.helius-rpc.com/?api-key=${env.HELIUS_DEVNET_API_KEY ?? env.HELIUS_API_KEY ?? ""}`,
     programIds: [env.PROGRAM_ID ?? "FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD"],
@@ -31,19 +32,22 @@ export const config = {
   // PROGRAM_ID is required and validated above
   programId: networkConfig.programIds[0],
   /** Comma-separated list of all program IDs to scan for markets */
-  allProgramIds: (env.ALL_PROGRAM_IDS ?? [
-    "FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD",
-    "FwfBKZXbYr4vTK23bMFkbgKq3npJ3MSDxEaKmq9Aj4Qn",
-    "g9msRSV3sJmmE3r5Twn9HuBsxzuuRGTjKCVTKudm9in",
-  ].join(",")).split(",").filter(Boolean),
+  // ALL_PROGRAM_IDS: comma-separated list of program IDs to scan for markets.
+  // Falls back to the single PROGRAM_ID from networkValidation if not set.
+  // The previous default of 3 devnet program IDs caused pointless 429s on mainnet.
+  allProgramIds: (env.ALL_PROGRAM_IDS ?? networkConfig.programIds[0] ?? "").split(",").filter(Boolean),
   // NOTE: Private key is NOT stored in config anymore.
   // Use getSealedSigner() from signer.ts to get signing capability.
   // Raw key material never exposed; only sign() interface provided.
   supabaseUrl: env.SUPABASE_URL ?? "",
   supabaseKey: env.SUPABASE_KEY ?? "",
   supabaseServiceRoleKey: env.SUPABASE_SERVICE_ROLE_KEY ?? "",
-  // PERC-469: heliusApiKey exposes the devnet key for internal service use (not browser)
-  heliusApiKey: (process.env.HELIUS_DEVNET_API_KEY ?? env.HELIUS_API_KEY ?? ""),
+  // PERC-469: heliusApiKey — network-aware key selection for internal service use
+  heliusApiKey: (
+    networkConfig.network === "mainnet"
+      ? (process.env.HELIUS_MAINNET_API_KEY ?? env.HELIUS_API_KEY ?? "")
+      : (process.env.HELIUS_DEVNET_API_KEY ?? env.HELIUS_API_KEY ?? "")
+  ),
   fallbackRpcUrl: env.FALLBACK_RPC_URL ?? "https://api.devnet.solana.com",
   port: env.PORT ?? 3001,
   crankIntervalMs: env.CRANK_INTERVAL_MS ?? 30_000,

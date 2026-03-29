@@ -331,18 +331,12 @@ async function broadcastToMultipleRpcs(
   throw new Error("All RPC endpoints failed to accept transaction");
 }
 
-// ---------------------------------------------------------------------------
-// PERC-204: Keeper-optimized send (skipPreflight + multi-RPC + tight CU)
-// ---------------------------------------------------------------------------
-
 /**
  * Send a transaction with keeper-mode optimizations:
  * - skipPreflight=true (saves ~20-50ms per tx)
  * - Multi-RPC parallel broadcast (+20-40% landing rate)
  * - Simulation-based tight CU limit (better queue position)
  * - Dynamic 75th-percentile priority fees
- *
- * Use this for all keeper/crank operations where tx construction is trusted.
  */
 export async function sendWithRetryKeeper(
   connection: Connection,
@@ -354,10 +348,8 @@ export async function sendWithRetryKeeper(
   const opts = { ...DEFAULT_KEEPER_OPTS, ...keeperOpts };
   let lastErr: unknown;
 
-  // Get dynamic priority fees once (outside retry loop)
   const { priorityFeeMicroLamports } = await getRecentPriorityFees(connection);
 
-  // Optionally simulate to get tight CU limit
   let computeUnitLimit = 400_000;
   if (opts.simulateForCU) {
     computeUnitLimit = await simulateForComputeUnits(connection, instructions, signers[0]);
@@ -368,7 +360,6 @@ export async function sendWithRetryKeeper(
       await acquireToken();
       const tx = new Transaction();
 
-      // Compute budget instructions first
       tx.add(
         ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit }),
         ComputeBudgetProgram.setComputeUnitPrice({ microLamports: priorityFeeMicroLamports })
@@ -384,7 +375,6 @@ export async function sendWithRetryKeeper(
       checkTransactionSize(tx);
 
       const sendOpts: SendOptions = {
-        // PERC-204: skipPreflight saves ~20-50ms per transaction
         skipPreflight: opts.skipPreflight,
         preflightCommitment: "confirmed",
       };
@@ -393,7 +383,6 @@ export async function sendWithRetryKeeper(
       let sig: string;
 
       if (opts.multiRpcBroadcast) {
-        // PERC-204: Broadcast to multiple RPCs for higher landing rate
         sig = await broadcastToMultipleRpcs(tx.serialize(), connection, sendOpts);
       } else {
         sig = await connection.sendRawTransaction(tx.serialize(), sendOpts);
@@ -413,156 +402,105 @@ export async function sendWithRetryKeeper(
   throw lastErr;
 }
 
-// ---------------------------------------------------------------------------
-// Keeper-optimized send (skipPreflight + multi-RPC + tight CU)
-// ---------------------------------------------------------------------------
+// ═════════════════════════════════════════════════════════════════════════════
+// Helius-Optimized Transaction Sending (Sender API + Priority Fee Estimate)
+// ═════════════════════════════════════════════════════════════════════════════
 
-export interface KeeperSendOptions {
-  /** Skip RPC-side simulation before forwarding (saves ~20-50ms). Default: true. */
-  skipPreflight?: boolean;
-  /** Send to multiple RPC endpoints in parallel for higher landing rate. Default: true. */
-  multiRpcBroadcast?: boolean;
-  /** Simulate tx to get tight CU limit instead of using default 400k. Default: true. */
-  simulateForCU?: boolean;
-}
+/** Jito tip accounts for Sender API transactions */
+const JITO_TIP_ACCOUNTS = [
+  "4ACfpUFoaSD9bfPdeu6DBt89gB6ENTeHBXCAi87NhDEE",
+  "D2L6yPZ2FmmmTKPgzaMKdhu6EWZcTpLy1Vhx8uvZe7NZ",
+  "9bnz4RShgq1hAnLnZbP8kbgBg1kEmcJBYQq3gQbmnSta",
+  "5VY91ws6B2hMmBFRsXkoAAdsPHBJwRfBht4DXox3xkwn",
+  "2nyhqdwKcJZR2vcqCyrYsaPVdAnFoJjiksCXJ7hfEYgD",
+];
 
-const DEFAULT_KEEPER_OPTS: Required<KeeperSendOptions> = {
-  skipPreflight: true,
-  multiRpcBroadcast: true,
-  simulateForCU: true,
-};
-
-async function simulateForComputeUnits(
-  connection: Connection,
-  instructions: TransactionInstruction[],
-  feePayer: Keypair,
+/**
+ * Get priority fee estimate from Helius API (program-specific, more accurate than getRecentPrioritizationFees).
+ * Falls back to 10,000 microLamports if Helius API unavailable.
+ */
+export async function getHeliusPriorityFee(
+  rpcUrl: string,
+  accountKeys: string[],
+  level: "Min" | "Low" | "Medium" | "High" | "VeryHigh" = "High",
 ): Promise<number> {
   try {
-    const simTx = new Transaction();
-    simTx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: 1_400_000 }));
-    for (const ix of instructions) simTx.add(ix);
-
-    const { blockhash } = await connection.getLatestBlockhash("confirmed");
-    simTx.recentBlockhash = blockhash;
-    simTx.feePayer = feePayer.publicKey;
-
-    await acquireToken();
-    const simResult = await connection.simulateTransaction(simTx);
-
-    if (simResult.value.err) return 400_000;
-
-    const unitsConsumed = simResult.value.unitsConsumed ?? 0;
-    if (unitsConsumed === 0) return 400_000;
-
-    return Math.max(Math.ceil(unitsConsumed * 1.1), 50_000);
+    const res = await fetch(rpcUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "getPriorityFeeEstimate",
+        params: [{ accountKeys, options: { priorityLevel: level } }],
+      }),
+    });
+    const data = await res.json();
+    if (data?.result?.priorityFeeEstimate) {
+      return Math.max(Math.ceil(data.result.priorityFeeEstimate), 1_000);
+    }
+    return 10_000;
   } catch {
-    return 400_000;
+    return 10_000;
   }
-}
-
-async function broadcastToMultipleRpcs(
-  rawTx: Buffer | Uint8Array,
-  primaryConnection: Connection,
-  opts: SendOptions,
-): Promise<string> {
-  const connections = [primaryConnection];
-
-  try {
-    const fallback = getFallbackConnection();
-    if (fallback) connections.push(fallback);
-  } catch { /* no fallback configured */ }
-
-  const extraRpcs = process.env.EXTRA_RPC_URLS?.split(",").filter(Boolean) ?? [];
-  for (const url of extraRpcs.slice(0, 3)) {
-    try {
-      connections.push(new Connection(url, "confirmed"));
-    } catch { /* invalid URL, skip */ }
-  }
-
-  if (connections.length <= 1) {
-    return primaryConnection.sendRawTransaction(rawTx, opts);
-  }
-
-  const results = await Promise.allSettled(
-    connections.map(conn => conn.sendRawTransaction(rawTx, opts))
-  );
-
-  for (const result of results) {
-    if (result.status === "fulfilled") return result.value;
-  }
-
-  const primaryResult = results[0];
-  if (primaryResult.status === "rejected") throw primaryResult.reason;
-  throw new Error("All RPC endpoints failed to accept transaction");
 }
 
 /**
- * Send a transaction with keeper-mode optimizations:
- * - skipPreflight=true (saves ~20-50ms per tx)
- * - Multi-RPC parallel broadcast (+20-40% landing rate)
- * - Simulation-based tight CU limit (better queue position)
- * - Dynamic 75th-percentile priority fees
+ * Send a serialized transaction via Helius Sender API.
+ * Dual-routes to validators + Jito for maximum landing probability.
+ * Returns the transaction signature.
+ *
+ * Requirements: transaction MUST include a Jito tip instruction.
  */
-export async function sendWithRetryKeeper(
-  connection: Connection,
-  instructions: TransactionInstruction[],
-  signers: Keypair[],
-  maxRetries = 3,
-  keeperOpts?: KeeperSendOptions,
+export async function sendViaHeliusSender(
+  rpcUrl: string,
+  rawTx: Buffer | Uint8Array,
 ): Promise<string> {
-  const opts = { ...DEFAULT_KEEPER_OPTS, ...keeperOpts };
-  let lastErr: unknown;
+  // Extract the base URL and API key from the RPC URL
+  const url = new URL(rpcUrl);
+  const apiKey = url.searchParams.get("api-key") || "";
+  const senderUrl = `https://sender.helius-rpc.com/fast?api-key=${apiKey}`;
 
-  const { priorityFeeMicroLamports } = await getRecentPriorityFees(connection);
+  const res = await fetch(senderUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "sendTransaction",
+      params: [
+        Buffer.from(rawTx).toString("base64"),
+        { encoding: "base64", skipPreflight: true, maxRetries: 0 },
+      ],
+    }),
+  });
 
-  let computeUnitLimit = 400_000;
-  if (opts.simulateForCU) {
-    computeUnitLimit = await simulateForComputeUnits(connection, instructions, signers[0]);
+  const data = await res.json();
+  if (data?.error) {
+    throw new Error(`Helius Sender error: ${JSON.stringify(data.error)}`);
   }
+  return data.result;
+}
 
-  for (let attempt = 0; attempt < maxRetries; attempt++) {
-    try {
-      await acquireToken();
-      const tx = new Transaction();
+/**
+ * Pick a random Jito tip account.
+ */
+export function randomJitoTipAccount(): string {
+  return JITO_TIP_ACCOUNTS[Math.floor(Math.random() * JITO_TIP_ACCOUNTS.length)];
+}
 
-      tx.add(
-        ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit }),
-        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: priorityFeeMicroLamports })
-      );
-
-      for (const ix of instructions) tx.add(ix);
-
-      const { blockhash } = await connection.getLatestBlockhash("confirmed");
-      tx.recentBlockhash = blockhash;
-      tx.feePayer = signers[0].publicKey;
-      tx.sign(...signers);
-
-      checkTransactionSize(tx);
-
-      const sendOpts: SendOptions = {
-        skipPreflight: opts.skipPreflight,
-        preflightCommitment: "confirmed",
-      };
-
-      await acquireToken();
-      let sig: string;
-
-      if (opts.multiRpcBroadcast) {
-        sig = await broadcastToMultipleRpcs(tx.serialize(), connection, sendOpts);
-      } else {
-        sig = await connection.sendRawTransaction(tx.serialize(), sendOpts);
-      }
-
-      await pollSignatureStatus(connection, sig);
-      return sig;
-    } catch (err) {
-      lastErr = err;
-      const delay = is429(err)
-        ? backoffMs(attempt, 2000, 30_000)
-        : Math.min(1000 * 2 ** attempt, 8000);
-      console.warn(`[sendWithRetryKeeper] Attempt ${attempt + 1}/${maxRetries} failed, retrying in ${Math.round(delay)}ms`);
-      await new Promise((r) => setTimeout(r, delay));
-    }
-  }
-  throw lastErr;
+/**
+ * Create a Jito tip instruction (SOL transfer to tip account).
+ * Default: 200,000 lamports (0.0002 SOL) — minimum for Helius Sender dual-routing.
+ */
+export function createJitoTipInstruction(
+  payer: import("@solana/web3.js").PublicKey,
+  lamports = 200_000,
+): TransactionInstruction {
+  const tipAccount = new (require("@solana/web3.js").PublicKey)(randomJitoTipAccount());
+  return require("@solana/web3.js").SystemProgram.transfer({
+    fromPubkey: payer,
+    toPubkey: tipAccount,
+    lamports,
+  });
 }

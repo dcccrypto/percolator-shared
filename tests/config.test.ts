@@ -39,11 +39,9 @@ describe("config", () => {
 
     expect(config.rpcUrl).toBe("https://devnet.helius-rpc.com/?api-key=");
     expect(config.programId).toBe("FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD");
-    expect(config.allProgramIds).toEqual([
-      "FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD",
-      "FwfBKZXbYr4vTK23bMFkbgKq3npJ3MSDxEaKmq9Aj4Qn",
-      "g9msRSV3sJmmE3r5Twn9HuBsxzuuRGTjKCVTKudm9in",
-    ]);
+    // Default: single devnet program ID (FxfD37... = "large" tier default).
+    // allProgramIds no longer hard-codes 3 devnet IDs to avoid mainnet 429s.
+    expect(config.allProgramIds).toEqual(["FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD"]);
     // crankKeypair removed from config — use getSealedSigner() from signer.ts
     expect(config.supabaseUrl).toBe("");
     expect(config.supabaseKey).toBe("");
@@ -153,12 +151,11 @@ describe("config", () => {
 
     const { config } = await import("../src/config.js");
 
-    // Default program IDs must be an array of 3 known program addresses
+    // When ALL_PROGRAM_IDS is unset, allProgramIds defaults to [PROGRAM_ID] (single entry).
+    // The previous 3-devnet-ID default was removed to prevent 429s on mainnet startup.
     expect(Array.isArray(config.allProgramIds)).toBe(true);
-    expect(config.allProgramIds).toHaveLength(3);
+    expect(config.allProgramIds).toHaveLength(1);
     expect(config.allProgramIds[0]).toBe("FxfD37s1AZTeWfFQps9Zpebi2dNQ9QSSDtfMKdbsfKrD");
-    expect(config.allProgramIds[1]).toBe("FwfBKZXbYr4vTK23bMFkbgKq3npJ3MSDxEaKmq9Aj4Qn");
-    expect(config.allProgramIds[2]).toBe("g9msRSV3sJmmE3r5Twn9HuBsxzuuRGTjKCVTKudm9in");
   });
 
   it("should reject invalid NODE_ENV values with a clear validation error", async () => {

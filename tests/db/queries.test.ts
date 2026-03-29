@@ -100,7 +100,7 @@ describe("queries", () => {
         { id: "2", slab_address: "slab2", symbol: "ETH" },
       ];
 
-      mockSelect.mockResolvedValue({ data: mockMarkets, error: null });
+      mockEq.mockResolvedValue({ data: mockMarkets, error: null });
 
       const { getMarkets } = await import("../../src/db/queries.js");
       const result = await getMarkets();
@@ -108,11 +108,12 @@ describe("queries", () => {
       expect(result).toEqual(mockMarkets);
       expect(mockFrom).toHaveBeenCalledWith("markets");
       expect(mockSelect).toHaveBeenCalledWith("*");
+      expect(mockEq).toHaveBeenCalledWith("network", "devnet");
     });
 
     it("should throw error on failure", async () => {
       const mockError = { message: "Database error", code: "500" };
-      mockSelect.mockResolvedValue({ data: null, error: mockError });
+      mockEq.mockResolvedValue({ data: null, error: mockError });
 
       const { getMarkets } = await import("../../src/db/queries.js");
 
@@ -120,7 +121,7 @@ describe("queries", () => {
     });
 
     it("should return empty array when no data", async () => {
-      mockSelect.mockResolvedValue({ data: null, error: null });
+      mockEq.mockResolvedValue({ data: null, error: null });
 
       const { getMarkets } = await import("../../src/db/queries.js");
       const result = await getMarkets();
@@ -187,7 +188,7 @@ describe("queries", () => {
       await insertMarket(market);
 
       expect(mockFrom).toHaveBeenCalledWith("markets");
-      expect(mockInsert).toHaveBeenCalledWith(market);
+      expect(mockInsert).toHaveBeenCalledWith({ ...market, network: "devnet" });
     });
 
     it("should ignore unique constraint violations (23505)", async () => {
@@ -284,7 +285,7 @@ describe("queries", () => {
       await insertTrade(trade);
 
       expect(mockFrom).toHaveBeenCalledWith("trades");
-      expect(mockInsert).toHaveBeenCalledWith(trade);
+      expect(mockInsert).toHaveBeenCalledWith({ ...trade, network: "devnet" });
     });
 
     it("should ignore unique constraint violations (23505)", async () => {
@@ -375,6 +376,7 @@ describe("queries", () => {
         price_e6: "50000000000",
         timestamp: 1234567890,
         tx_signature: "sig123",
+        network: "devnet",
       });
     });
 
@@ -395,6 +397,7 @@ describe("queries", () => {
         price_e6: "50000000000",
         timestamp: 1234567890,
         tx_signature: null,
+        network: "devnet",
       });
     });
 
@@ -577,7 +580,7 @@ describe("queries", () => {
       await insertFundingHistory(record);
 
       expect(mockFrom).toHaveBeenCalledWith("funding_history");
-      expect(mockInsert).toHaveBeenCalledWith(record);
+      expect(mockInsert).toHaveBeenCalledWith({ ...record, network: "devnet" });
     });
 
     it("should throw on error", async () => {

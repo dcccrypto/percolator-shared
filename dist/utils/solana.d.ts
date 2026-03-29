@@ -75,7 +75,27 @@ export declare function sendWithRetry(connection: Connection, ix: TransactionIns
  * - Multi-RPC parallel broadcast (+20-40% landing rate)
  * - Simulation-based tight CU limit (better queue position)
  * - Dynamic 75th-percentile priority fees
- *
- * Use this for all keeper/crank operations where tx construction is trusted.
  */
 export declare function sendWithRetryKeeper(connection: Connection, instructions: TransactionInstruction[], signers: Keypair[], maxRetries?: number, keeperOpts?: KeeperSendOptions): Promise<string>;
+/**
+ * Get priority fee estimate from Helius API (program-specific, more accurate than getRecentPrioritizationFees).
+ * Falls back to 10,000 microLamports if Helius API unavailable.
+ */
+export declare function getHeliusPriorityFee(rpcUrl: string, accountKeys: string[], level?: "Min" | "Low" | "Medium" | "High" | "VeryHigh"): Promise<number>;
+/**
+ * Send a serialized transaction via Helius Sender API.
+ * Dual-routes to validators + Jito for maximum landing probability.
+ * Returns the transaction signature.
+ *
+ * Requirements: transaction MUST include a Jito tip instruction.
+ */
+export declare function sendViaHeliusSender(rpcUrl: string, rawTx: Buffer | Uint8Array): Promise<string>;
+/**
+ * Pick a random Jito tip account.
+ */
+export declare function randomJitoTipAccount(): string;
+/**
+ * Create a Jito tip instruction (SOL transfer to tip account).
+ * Default: 200,000 lamports (0.0002 SOL) — minimum for Helius Sender dual-routing.
+ */
+export declare function createJitoTipInstruction(payer: import("@solana/web3.js").PublicKey, lamports?: number): TransactionInstruction;

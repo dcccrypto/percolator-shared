@@ -1,6 +1,22 @@
 import { getSupabase } from "./client.js";
+/**
+ * Network for all DB writes/reads.
+ *
+ * Set via NETWORK env var on each service (devnet | mainnet).
+ * Defaults to 'devnet' to prevent accidental mainnet writes on unset deployments.
+ * Services MUST set NETWORK=mainnet explicitly for mainnet Railway environments.
+ */
+export function getNetwork() {
+    const raw = process.env.NETWORK;
+    if (raw === "mainnet")
+        return "mainnet";
+    return "devnet";
+}
 export async function getMarkets() {
-    const { data, error } = await getSupabase().from("markets").select("*");
+    const { data, error } = await getSupabase()
+        .from("markets")
+        .select("*")
+        .eq("network", getNetwork());
     if (error)
         throw error;
     return (data ?? []);
@@ -10,13 +26,17 @@ export async function getMarketBySlabAddress(slabAddress) {
         .from("markets")
         .select("*")
         .eq("slab_address", slabAddress)
+        .eq("network", getNetwork())
         .single();
     if (error && error.code !== "PGRST116")
         throw error;
     return data ?? null;
 }
 export async function insertMarket(market) {
-    const { error } = await getSupabase().from("markets").insert(market);
+    const { error } = await getSupabase().from("markets").insert({
+        ...market,
+        network: getNetwork(),
+    });
     // Ignore unique constraint violations (market already exists)
     if (error && error.code !== "23505") {
         throw error;
@@ -31,7 +51,10 @@ export async function upsertMarketStats(stats) {
         throw error;
 }
 export async function insertTrade(trade) {
-    const { error } = await getSupabase().from("trades").insert(trade);
+    const { error } = await getSupabase().from("trades").insert({
+        ...trade,
+        network: getNetwork(),
+    });
     // BH8: Ignore unique constraint violations (23505 = unique_violation)
     // This allows the TradeIndexer to safely retry without crashing on duplicates
     if (error && error.code !== "23505") {
@@ -43,6 +66,7 @@ export async function tradeExistsBySignature(txSignature) {
         .from("trades")
         .select("id")
         .eq("tx_signature", txSignature)
+        .eq("network", getNetwork())
         .limit(1);
     if (error)
         throw error;
@@ -54,6 +78,7 @@ export async function insertOraclePrice(price) {
         price_e6: price.price_e6,
         timestamp: price.timestamp,
         tx_signature: price.tx_signature ?? null,
+        network: getNetwork(),
     });
     // Ignore FK violations (23503) — market may not be in DB yet
     if (error && error.code !== "23503")
@@ -64,6 +89,7 @@ export async function getRecentTrades(slabAddress, limit = 50) {
         .from("trades")
         .select("*")
         .eq("slab_address", slabAddress)
+        .eq("network", getNetwork())
         .order("created_at", { ascending: false })
         .limit(limit);
     if (error)
@@ -76,6 +102,7 @@ export async function get24hVolume(slabAddress) {
         .from("trades")
         .select("size")
         .eq("slab_address", slabAddress)
+        .eq("network", getNetwork())
         .gte("created_at", since);
     if (error)
         throw error;
@@ -96,6 +123,7 @@ export async function getGlobalRecentTrades(limit = 50) {
     const { data, error } = await getSupabase()
         .from("trades")
         .select("*")
+        .eq("network", getNetwork())
         .order("created_at", { ascending: false })
         .limit(limit);
     if (error)
@@ -107,6 +135,7 @@ export async function getPriceHistory(slabAddress, sinceEpoch) {
         .from("oracle_prices")
         .select("*")
         .eq("slab_address", slabAddress)
+        .eq("network", getNetwork())
         .gte("timestamp", sinceEpoch)
         .order("timestamp", { ascending: true });
     if (error)
@@ -114,7 +143,10 @@ export async function getPriceHistory(slabAddress, sinceEpoch) {
     return (data ?? []);
 }
 export async function insertFundingHistory(record) {
-    const { error } = await getSupabase().from("funding_history").insert(record);
+    const { error } = await getSupabase().from("funding_history").insert({
+        ...record,
+        network: getNetwork(),
+    });
     if (error)
         throw error;
 }
@@ -123,6 +155,7 @@ export async function getFundingHistory(slabAddress, limit = 100) {
         .from("funding_history")
         .select("*")
         .eq("market_slab", slabAddress)
+        .eq("network", getNetwork())
         .order("timestamp", { ascending: false })
         .limit(limit);
     if (error)
@@ -134,6 +167,7 @@ export async function getFundingHistorySince(slabAddress, sinceTimestamp) {
         .from("funding_history")
         .select("*")
         .eq("market_slab", slabAddress)
+        .eq("network", getNetwork())
         .gte("timestamp", sinceTimestamp)
         .order("timestamp", { ascending: true });
     if (error)

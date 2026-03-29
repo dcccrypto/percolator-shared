@@ -1,3 +1,11 @@
+/**
+ * Network for all DB writes/reads.
+ *
+ * Set via NETWORK env var on each service (devnet | mainnet).
+ * Defaults to 'devnet' to prevent accidental mainnet writes on unset deployments.
+ * Services MUST set NETWORK=mainnet explicitly for mainnet Railway environments.
+ */
+export declare function getNetwork(): "devnet" | "mainnet";
 export interface MarketRow {
     id: string;
     slab_address: string;
@@ -13,6 +21,8 @@ export interface MarketRow {
     lp_collateral: string | null;
     matcher_context: string | null;
     status: string;
+    /** Network this market belongs to: devnet or mainnet (migration 20260329180000) */
+    network: "devnet" | "mainnet";
     created_at: string;
     updated_at: string;
     /** GH#1218: when true the indexer must NOT write market_stats for this slab (on-chain state is corrupt). */
@@ -60,6 +70,8 @@ export interface TradeRow {
     price: number;
     fee: number;
     tx_signature: string | null;
+    /** Network this trade was executed on (migration 20260329180000) */
+    network?: "devnet" | "mainnet";
     created_at: string;
 }
 export interface OraclePriceRow {
@@ -67,14 +79,16 @@ export interface OraclePriceRow {
     price_e6: string;
     timestamp: number;
     tx_signature?: string | null;
+    /** Network this price record belongs to (migration 20260329180000) */
+    network?: "devnet" | "mainnet";
 }
 export declare function getMarkets(): Promise<MarketRow[]>;
 export declare function getMarketBySlabAddress(slabAddress: string): Promise<MarketRow | null>;
-export declare function insertMarket(market: Omit<MarketRow, "id" | "created_at" | "updated_at">): Promise<void>;
+export declare function insertMarket(market: Omit<MarketRow, "id" | "created_at" | "updated_at" | "network">): Promise<void>;
 export declare function upsertMarketStats(stats: Partial<MarketStatsRow> & {
     slab_address: string;
 }): Promise<void>;
-export declare function insertTrade(trade: Omit<TradeRow, "id" | "created_at">): Promise<void>;
+export declare function insertTrade(trade: Omit<TradeRow, "id" | "created_at" | "network">): Promise<void>;
 export declare function tradeExistsBySignature(txSignature: string): Promise<boolean>;
 export declare function insertOraclePrice(price: OraclePriceRow): Promise<void>;
 export declare function getRecentTrades(slabAddress: string, limit?: number): Promise<TradeRow[]>;
@@ -93,6 +107,8 @@ export interface FundingHistoryRow {
     net_lp_pos: string;
     price_e6: number;
     funding_index_qpb_e6: string;
+    /** Network this record belongs to (migration 20260329180000) */
+    network?: "devnet" | "mainnet";
     created_at: string;
 }
 export declare function insertFundingHistory(record: {

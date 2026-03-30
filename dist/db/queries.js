@@ -190,25 +190,53 @@ export async function insertFundingHistory(record) {
         throw error;
 }
 export async function getFundingHistory(slabAddress, limit = 100) {
-    const { data, error } = await getSupabase()
+    let { data, error } = await getSupabase()
         .from("funding_history")
         .select("*")
         .eq("market_slab", slabAddress)
         .eq("network", getNetwork())
         .order("timestamp", { ascending: false })
         .limit(limit);
+    // PERC-8215: Fallback when network column migration not yet applied.
+    // Remove once 20260329180000_add_network_column.sql is applied.
+    if (error && error.message?.includes("network")) {
+        console.warn("[getFundingHistory] PERC-8215: network column missing on funding_history — falling back to unfiltered query. " +
+            "Apply 20260329180000_add_network_column.sql to fix.");
+        const fallback = await getSupabase()
+            .from("funding_history")
+            .select("*")
+            .eq("market_slab", slabAddress)
+            .order("timestamp", { ascending: false })
+            .limit(limit);
+        data = fallback.data;
+        error = fallback.error;
+    }
     if (error)
         throw error;
     return data ?? [];
 }
 export async function getFundingHistorySince(slabAddress, sinceTimestamp) {
-    const { data, error } = await getSupabase()
+    let { data, error } = await getSupabase()
         .from("funding_history")
         .select("*")
         .eq("market_slab", slabAddress)
         .eq("network", getNetwork())
         .gte("timestamp", sinceTimestamp)
         .order("timestamp", { ascending: true });
+    // PERC-8215: Fallback when network column migration not yet applied.
+    // Remove once 20260329180000_add_network_column.sql is applied.
+    if (error && error.message?.includes("network")) {
+        console.warn("[getFundingHistorySince] PERC-8215: network column missing on funding_history — falling back to unfiltered query. " +
+            "Apply 20260329180000_add_network_column.sql to fix.");
+        const fallback = await getSupabase()
+            .from("funding_history")
+            .select("*")
+            .eq("market_slab", slabAddress)
+            .gte("timestamp", sinceTimestamp)
+            .order("timestamp", { ascending: true });
+        data = fallback.data;
+        error = fallback.error;
+    }
     if (error)
         throw error;
     return data ?? [];

@@ -170,25 +170,60 @@ export async function insertOraclePrice(price: OraclePriceRow): Promise<void> {
 }
 
 export async function getRecentTrades(slabAddress: string, limit = 50): Promise<TradeRow[]> {
-  const { data, error } = await getSupabase()
+  let { data, error } = await getSupabase()
     .from("trades")
     .select("*")
     .eq("slab_address", slabAddress)
     .eq("network", getNetwork())
     .order("created_at", { ascending: false })
     .limit(limit);
+
+  // PERC-8215: Fallback when network column migration not yet applied.
+  // If the error mentions 'network', retry without the filter so trades remain available.
+  // Remove once 20260329180000_add_network_column.sql is applied.
+  if (error && error.message?.includes("network")) {
+    console.warn(
+      "[getRecentTrades] PERC-8215: network column missing on trades — falling back to unfiltered query. " +
+        "Apply 20260329180000_add_network_column.sql to fix.",
+    );
+    const fallback = await getSupabase()
+      .from("trades")
+      .select("*")
+      .eq("slab_address", slabAddress)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    data = fallback.data;
+    error = fallback.error;
+  }
+
   if (error) throw error;
   return (data ?? []) as TradeRow[];
 }
 
 export async function get24hVolume(slabAddress: string): Promise<{ volume: string; tradeCount: number }> {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-  const { data, error } = await getSupabase()
+  let { data, error } = await getSupabase()
     .from("trades")
     .select("size")
     .eq("slab_address", slabAddress)
     .eq("network", getNetwork())
     .gte("created_at", since);
+
+  // PERC-8215: Fallback when network column migration not yet applied.
+  if (error && error.message?.includes("network")) {
+    console.warn(
+      "[get24hVolume] PERC-8215: network column missing on trades — falling back to unfiltered query. " +
+        "Apply 20260329180000_add_network_column.sql to fix.",
+    );
+    const fallback = await getSupabase()
+      .from("trades")
+      .select("size")
+      .eq("slab_address", slabAddress)
+      .gte("created_at", since);
+    data = fallback.data;
+    error = fallback.error;
+  }
+
   if (error) throw error;
   let total = 0n;
   for (const row of data ?? []) {
@@ -204,12 +239,28 @@ export async function get24hVolume(slabAddress: string): Promise<{ volume: strin
 }
 
 export async function getGlobalRecentTrades(limit = 50): Promise<TradeRow[]> {
-  const { data, error } = await getSupabase()
+  let { data, error } = await getSupabase()
     .from("trades")
     .select("*")
     .eq("network", getNetwork())
     .order("created_at", { ascending: false })
     .limit(limit);
+
+  // PERC-8215: Fallback when network column migration not yet applied.
+  if (error && error.message?.includes("network")) {
+    console.warn(
+      "[getGlobalRecentTrades] PERC-8215: network column missing on trades — falling back to unfiltered query. " +
+        "Apply 20260329180000_add_network_column.sql to fix.",
+    );
+    const fallback = await getSupabase()
+      .from("trades")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    data = fallback.data;
+    error = fallback.error;
+  }
+
   if (error) throw error;
   return (data ?? []) as TradeRow[];
 }

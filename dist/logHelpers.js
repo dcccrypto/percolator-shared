@@ -6,7 +6,7 @@
  *
  * Usage:
  * ```typescript
- * import { logApiCall, logDbQuery, logOperation } from "@percolator/shared";
+ * import { logApiCall, logDbQuery, logOperation } from "@percolatorct/shared";
  *
  * // Log API calls
  * logApiCall(logger, "GET", "/markets", 200, 45);

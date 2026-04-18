@@ -1,4 +1,4 @@
-# @percolator/shared
+# @percolatorct/shared
 
 Shared utilities for Percolator backend services (API, Indexer, Keeper).
 
@@ -18,7 +18,7 @@ Shared utilities for Percolator backend services (API, Indexer, Keeper).
 ## Install
 
 ```bash
-pnpm add @percolator/shared
+pnpm add @percolatorct/shared
 ```
 
 ## Build

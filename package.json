@@ -1,18 +1,31 @@
 {
-  "name": "@percolator/shared",
-  "version": "0.1.0",
-  "private": true,
+  "name": "@percolatorct/shared",
+  "version": "1.0.0-beta.1",
+  "description": "Shared backend utilities for Percolator services (keeper, indexer, api): retry, logging, signing, config, validation, sentry, supabase.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepublishOnly": "pnpm build && pnpm test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dcccrypto/percolator-shared.git"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "dependencies": {
-    "@percolator/sdk": "github:dcccrypto/percolator-sdk",
+    "@percolatorct/sdk": "^1.0.0-beta.31",
     "@sentry/node": "^10.39.0",
     "@solana/web3.js": "^1.98.0",
     "@supabase/supabase-js": "^2.49.1",

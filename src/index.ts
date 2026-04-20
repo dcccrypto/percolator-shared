@@ -11,10 +11,12 @@ export * from "./utils/solana.js";
 // the package root contract so consumers can rely on these symbols.
 export {
   sendViaHeliusSender,
+  sendKeeperTxViaSender,
   getHeliusPriorityFee,
   createJitoTipInstruction,
   randomJitoTipAccount,
 } from "./utils/solana.js";
+export type { SenderSendOptions } from "./utils/solana.js";
 export * from "./utils/rpc-client.js";
 export * from "./utils/binary.js";
 export * from "./services/events.js";

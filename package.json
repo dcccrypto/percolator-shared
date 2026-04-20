@@ -1,6 +1,6 @@
 {
   "name": "@percolatorct/shared",
-  "version": "1.0.0-beta.2",
+  "version": "1.0.0-beta.3",
   "description": "Shared backend utilities for Percolator services (keeper, indexer, api): retry, logging, signing, config, validation, sentry, supabase.",
   "type": "module",
   "main": "./dist/index.js",
@@ -32,10 +32,12 @@
     "bs58": "^6.0.0",
     "dotenv": "^16.4.7",
     "tweetnacl": "^1.0.3",
+    "ws": "^8.20.0",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^25.2.2",
+    "@types/ws": "^8.18.1",
     "typescript": "^5.7.3",
     "vitest": "^4.0.18"
   }

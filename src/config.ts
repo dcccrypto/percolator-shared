@@ -52,6 +52,12 @@ export const config = {
   port: env.PORT ?? 3001,
   crankIntervalMs: env.CRANK_INTERVAL_MS ?? 30_000,
   crankInactiveIntervalMs: env.CRANK_INACTIVE_INTERVAL_MS ?? 60_000,
+  /** Route keeper transactions via Helius Sender API when true (Phase 1 perf upgrade) */
+  useHeliusSender: process.env.USE_HELIUS_SENDER === "true",
+  /** Jito tip in lamports for Sender dual-routing (0.0002 SOL = 200000 min) */
+  jitoTipLamports: parseInt(process.env.JITO_TIP_LAMPORTS ?? "200000", 10),
+  /** Priority fee level for getPriorityFeeEstimate */
+  heliusPriorityLevel: (process.env.HELIUS_PRIORITY_LEVEL ?? "High") as "Min" | "Low" | "Medium" | "High" | "VeryHigh",
   /** BH4: Reduced to 60s to catch markets created/deleted within smaller window */
   discoveryIntervalMs: env.DISCOVERY_INTERVAL_MS ?? 300_000,
   /** Helius webhook secret for auth validation */

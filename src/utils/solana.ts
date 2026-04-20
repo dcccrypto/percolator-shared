@@ -345,6 +345,32 @@ export async function sendWithRetryKeeper(
   maxRetries = 3,
   keeperOpts?: KeeperSendOptions,
 ): Promise<string> {
+  // Helius Sender fast path — opt-in via env flag.
+  if (process.env.USE_HELIUS_SENDER === "true") {
+    const priorityLevel = (process.env.HELIUS_PRIORITY_LEVEL ?? "High") as
+      "Min" | "Low" | "Medium" | "High" | "VeryHigh";
+    const tipLamports = parseInt(process.env.JITO_TIP_LAMPORTS ?? "200000", 10);
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        return await sendKeeperTxViaSender(connection, instructions, signers, {
+          priorityLevel,
+          tipLamports,
+        });
+      } catch (err) {
+        lastErr = err;
+        const delay = is429(err)
+          ? backoffMs(attempt, 2000, 30_000)
+          : Math.min(1000 * 2 ** attempt, 8000);
+        console.warn(
+          `[sendWithRetryKeeper/sender] attempt ${attempt + 1}/${maxRetries} failed: ${getErrorMessage(err)}, retry in ${Math.round(delay)}ms`,
+        );
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
+    throw lastErr;
+  }
+
   const opts = { ...DEFAULT_KEEPER_OPTS, ...keeperOpts };
   let lastErr: unknown;
 
@@ -480,6 +506,57 @@ export async function sendViaHeliusSender(
     throw new Error(`Helius Sender error: ${JSON.stringify(data.error)}`);
   }
   return data.result;
+}
+
+export interface SenderSendOptions {
+  priorityLevel?: "Min" | "Low" | "Medium" | "High" | "VeryHigh";
+  tipLamports?: number;
+  computeUnitLimit?: number;
+}
+
+/**
+ * Send a keeper transaction via Helius Sender API.
+ * Composes: priority fee estimate + ComputeBudget + Jito tip + instructions + sign + send + poll.
+ *
+ * Requires connection.rpcEndpoint to be a Helius mainnet URL with api-key query param.
+ */
+export async function sendKeeperTxViaSender(
+  connection: Connection,
+  instructions: TransactionInstruction[],
+  signers: Keypair[],
+  opts: SenderSendOptions = {},
+): Promise<string> {
+  const priorityLevel = opts.priorityLevel ?? "High";
+  const tipLamports = opts.tipLamports ?? 200_000;
+  const computeUnitLimit = opts.computeUnitLimit ?? 400_000;
+
+  const rpcUrl = connection.rpcEndpoint;
+
+  // Collect unique account keys from all instructions for Helius priority-fee query.
+  const accountKeys = Array.from(
+    new Set(instructions.flatMap((ix) => ix.keys.map((k) => k.pubkey.toBase58()))),
+  );
+  const microLamports = await getHeliusPriorityFee(rpcUrl, accountKeys, priorityLevel);
+
+  const tipIx = createJitoTipInstruction(signers[0].publicKey, tipLamports);
+
+  const tx = new Transaction();
+  tx.add(
+    ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit }),
+    ComputeBudgetProgram.setComputeUnitPrice({ microLamports }),
+    tipIx,
+    ...instructions,
+  );
+
+  const { blockhash } = await connection.getLatestBlockhash("confirmed");
+  tx.recentBlockhash = blockhash;
+  tx.feePayer = signers[0].publicKey;
+  tx.sign(...signers);
+  checkTransactionSize(tx);
+
+  const sig = await sendViaHeliusSender(rpcUrl, tx.serialize());
+  await pollSignatureStatus(connection, sig);
+  return sig;
 }
 
 /**

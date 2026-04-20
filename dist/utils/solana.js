@@ -1,4 +1,4 @@
-import { Connection, Keypair, Transaction, ComputeBudgetProgram } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey, SystemProgram, Transaction, ComputeBudgetProgram } from "@solana/web3.js";
 import bs58 from "bs58";
 import { acquireToken, getPrimaryConnection, getFallbackConnection, backoffMs } from "./rpc-client.js";
 import { getErrorMessage } from "../errors.js";
@@ -406,8 +406,8 @@ export function randomJitoTipAccount() {
  * Default: 200,000 lamports (0.0002 SOL) — minimum for Helius Sender dual-routing.
  */
 export function createJitoTipInstruction(payer, lamports = 200_000) {
-    const tipAccount = new (require("@solana/web3.js").PublicKey)(randomJitoTipAccount());
-    return require("@solana/web3.js").SystemProgram.transfer({
+    const tipAccount = new PublicKey(randomJitoTipAccount());
+    return SystemProgram.transfer({
         fromPubkey: payer,
         toPubkey: tipAccount,
         lamports,

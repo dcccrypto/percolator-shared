@@ -1,4 +1,4 @@
-import { Connection, Keypair, Transaction, TransactionInstruction } from "@solana/web3.js";
+import { Connection, Keypair, PublicKey, Transaction, TransactionInstruction } from "@solana/web3.js";
 import { getPrimaryConnection, getFallbackConnection } from "./rpc-client.js";
 export { getPrimaryConnection as getConnection, getFallbackConnection };
 /**
@@ -110,4 +110,4 @@ export declare function randomJitoTipAccount(): string;
  * Create a Jito tip instruction (SOL transfer to tip account).
  * Default: 200,000 lamports (0.0002 SOL) — minimum for Helius Sender dual-routing.
  */
-export declare function createJitoTipInstruction(payer: import("@solana/web3.js").PublicKey, lamports?: number): TransactionInstruction;
+export declare function createJitoTipInstruction(payer: PublicKey, lamports?: number): TransactionInstruction;

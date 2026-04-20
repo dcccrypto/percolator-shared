@@ -97,11 +97,22 @@ export async function getRecentPriorityFees(connection: Connection): Promise<{
   priorityFeeMicroLamports: number;
   computeUnitLimit: number;
 }> {
+  // Env override — skip RPC lookup entirely and use a fixed rate. Useful for
+  // cost control on oracle-push keepers where "eventual land" is fine and the
+  // dynamic p75 of recent fees is more expensive than needed.
+  const override = process.env.PRIORITY_FEE_MICROLAMPORTS;
+  if (override) {
+    const parsed = parseInt(override, 10);
+    if (Number.isFinite(parsed) && parsed >= 0) {
+      return { priorityFeeMicroLamports: parsed, computeUnitLimit: 400_000 };
+    }
+  }
+
   try {
     await acquireToken();
     // Get recent prioritization fees for the last 150 slots
     const recentFees = await connection.getRecentPrioritizationFees();
-    
+
     if (recentFees.length === 0) {
       console.warn("[getRecentPriorityFees] No recent fees found, using defaults");
       return { priorityFeeMicroLamports: 10_000, computeUnitLimit: 400_000 };

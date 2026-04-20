@@ -6,6 +6,15 @@ export * from "./errors.js";
 export * from "./db/client.js";
 export * from "./db/queries.js";
 export * from "./utils/solana.js";
+// Explicit re-exports of Helius Sender primitives for discoverability.
+// These are also surfaced by the star export above; the named form pins
+// the package root contract so consumers can rely on these symbols.
+export {
+  sendViaHeliusSender,
+  getHeliusPriorityFee,
+  createJitoTipInstruction,
+  randomJitoTipAccount,
+} from "./utils/solana.js";
 export * from "./utils/rpc-client.js";
 export * from "./utils/binary.js";
 export * from "./services/events.js";

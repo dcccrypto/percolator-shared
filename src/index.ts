@@ -19,6 +19,8 @@ export {
 export type { SenderSendOptions } from "./utils/solana.js";
 export * from "./utils/rpc-client.js";
 export * from "./utils/binary.js";
+export { createAtlasWs } from "./utils/atlas-ws.js";
+export type { AtlasWs, AtlasNotification } from "./utils/atlas-ws.js";
 export * from "./services/events.js";
 export * from "./retry.js";
 export * from "./sentry.js";

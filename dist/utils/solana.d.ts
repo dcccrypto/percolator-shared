@@ -90,6 +90,18 @@ export declare function getHeliusPriorityFee(rpcUrl: string, accountKeys: string
  * Requirements: transaction MUST include a Jito tip instruction.
  */
 export declare function sendViaHeliusSender(rpcUrl: string, rawTx: Buffer | Uint8Array): Promise<string>;
+export interface SenderSendOptions {
+    priorityLevel?: "Min" | "Low" | "Medium" | "High" | "VeryHigh";
+    tipLamports?: number;
+    computeUnitLimit?: number;
+}
+/**
+ * Send a keeper transaction via Helius Sender API.
+ * Composes: priority fee estimate + ComputeBudget + Jito tip + instructions + sign + send + poll.
+ *
+ * Requires connection.rpcEndpoint to be a Helius mainnet URL with api-key query param.
+ */
+export declare function sendKeeperTxViaSender(connection: Connection, instructions: TransactionInstruction[], signers: Keypair[], opts?: SenderSendOptions): Promise<string>;
 /**
  * Pick a random Jito tip account.
  */

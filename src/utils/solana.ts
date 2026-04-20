@@ -345,6 +345,32 @@ export async function sendWithRetryKeeper(
   maxRetries = 3,
   keeperOpts?: KeeperSendOptions,
 ): Promise<string> {
+  // Helius Sender fast path — opt-in via env flag.
+  if (process.env.USE_HELIUS_SENDER === "true") {
+    const priorityLevel = (process.env.HELIUS_PRIORITY_LEVEL ?? "High") as
+      "Min" | "Low" | "Medium" | "High" | "VeryHigh";
+    const tipLamports = parseInt(process.env.JITO_TIP_LAMPORTS ?? "200000", 10);
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        return await sendKeeperTxViaSender(connection, instructions, signers, {
+          priorityLevel,
+          tipLamports,
+        });
+      } catch (err) {
+        lastErr = err;
+        const delay = is429(err)
+          ? backoffMs(attempt, 2000, 30_000)
+          : Math.min(1000 * 2 ** attempt, 8000);
+        console.warn(
+          `[sendWithRetryKeeper/sender] attempt ${attempt + 1}/${maxRetries} failed: ${getErrorMessage(err)}, retry in ${Math.round(delay)}ms`,
+        );
+        await new Promise((r) => setTimeout(r, delay));
+      }
+    }
+    throw lastErr;
+  }
+
   const opts = { ...DEFAULT_KEEPER_OPTS, ...keeperOpts };
   let lastErr: unknown;
 

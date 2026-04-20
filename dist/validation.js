@@ -77,13 +77,11 @@ const envSchema = envSchemaBase.superRefine((data, ctx) => {
                 path: ["SUPABASE_KEY"],
             });
         }
-        if (!data.SUPABASE_SERVICE_ROLE_KEY) {
-            ctx.addIssue({
-                code: z.ZodIssueCode.custom,
-                message: "SUPABASE_SERVICE_ROLE_KEY is required in production",
-                path: ["SUPABASE_SERVICE_ROLE_KEY"],
-            });
-        }
+        // SUPABASE_SERVICE_ROLE_KEY intentionally NOT required here. Services with
+        // write-RLS needs (e.g. indexer) must check their own config at startup;
+        // services running under least-privilege (e.g. keeper, which has a
+        // security guard at PERC-8232 forbidding this key entirely) must not be
+        // forced to set it.
     }
 });
 /**

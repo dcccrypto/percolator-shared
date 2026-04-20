@@ -287,7 +287,11 @@ describe("validation", () => {
       expect(() => validateEnv()).toThrow("SUPABASE_KEY is required in production");
     });
 
-    it("should require SUPABASE_SERVICE_ROLE_KEY in production", async () => {
+    it("should NOT require SUPABASE_SERVICE_ROLE_KEY in production (keeper forbids it per PERC-8232)", async () => {
+      // Keeper security guard (percolator-keeper/src/env-guards.ts) rejects
+      // SUPABASE_SERVICE_ROLE_KEY being present. Shared therefore cannot require
+      // it at the library level — services that need it (indexer, api) must
+      // check their own config at startup.
       process.env.NODE_ENV = "production";
       process.env.RPC_URL = "https://api.mainnet-beta.solana.com";
       process.env.SUPABASE_URL = "https://test.supabase.co";
@@ -296,7 +300,7 @@ describe("validation", () => {
 
       const { validateEnv } = await import("../src/validation.js");
 
-      expect(() => validateEnv()).toThrow("SUPABASE_SERVICE_ROLE_KEY is required in production");
+      expect(() => validateEnv()).not.toThrow();
     });
 
     it("should accept valid production environment with all required vars", async () => {

@@ -1,6 +1,6 @@
 {
   "name": "@percolatorct/shared",
-  "version": "1.0.0-beta.5",
+  "version": "1.0.0-beta.6",
   "description": "Shared backend utilities for Percolator services (keeper, indexer, api): retry, logging, signing, config, validation, sentry, supabase.",
   "type": "module",
   "main": "./dist/index.js",
@@ -24,8 +24,10 @@
   "publishConfig": {
     "access": "public"
   },
+  "peerDependencies": {
+    "@percolatorct/sdk": ">=2.0.5"
+  },
   "dependencies": {
-    "@percolatorct/sdk": "1.0.0-beta.34",
     "@sentry/node": "^10.39.0",
     "@solana/web3.js": "^1.98.0",
     "@supabase/supabase-js": "^2.49.1",
@@ -36,6 +38,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@percolatorct/sdk": "^2.0.5",
     "@types/node": "^25.2.2",
     "@types/ws": "^8.18.1",
     "typescript": "^5.7.3",

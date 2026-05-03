@@ -1,6 +1,6 @@
 {
   "name": "@percolatorct/shared",
-  "version": "1.0.0-beta.6",
+  "version": "1.0.0-beta.7",
   "description": "Shared backend utilities for Percolator services (keeper, indexer, api): retry, logging, signing, config, validation, sentry, supabase.",
   "type": "module",
   "main": "./dist/index.js",

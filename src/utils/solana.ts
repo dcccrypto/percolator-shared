@@ -496,7 +496,14 @@ export async function sendViaHeliusSender(
   // Extract the base URL and API key from the RPC URL
   const url = new URL(rpcUrl);
   const apiKey = url.searchParams.get("api-key") || "";
-  const senderUrl = `https://sender.helius-rpc.com/fast?api-key=${apiKey}`;
+  const senderUrl = (() => {
+    const configured = process.env.HELIUS_SENDER_URL?.trim();
+    const sender = new URL(configured || "https://sender.helius-rpc.com/fast");
+    if (apiKey && !sender.searchParams.has("api-key")) {
+      sender.searchParams.set("api-key", apiKey);
+    }
+    return sender.toString();
+  })();
 
   const res = await fetch(senderUrl, {
     method: "POST",

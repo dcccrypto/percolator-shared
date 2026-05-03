@@ -26,6 +26,7 @@ describe("sendKeeperTxViaSender", () => {
   });
 
   afterEach(() => {
+    delete process.env.HELIUS_SENDER_URL;
     vi.restoreAllMocks();
   });
 
@@ -99,5 +100,21 @@ describe("sendKeeperTxViaSender", () => {
 
     const feeBody = JSON.parse(fetchMock.mock.calls[0][1]!.body as string);
     expect(feeBody.params[0].options.priorityLevel).toBe("VeryHigh");
+  });
+
+  it("uses configured backend regional Sender URL and appends api key", async () => {
+    process.env.HELIUS_SENDER_URL = "http://lon-sender.helius-rpc.com/fast";
+    const fetchMock = vi.spyOn(global, "fetch")
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ result: { priorityFeeEstimate: 5000 } }), { status: 200 }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: FAKE_SIG }), { status: 200 }),
+      );
+
+    await sendKeeperTxViaSender(connection, [noopIx], [signer]);
+
+    const senderCall = fetchMock.mock.calls[1];
+    expect(String(senderCall[0])).toBe("http://lon-sender.helius-rpc.com/fast?api-key=stub");
   });
 });

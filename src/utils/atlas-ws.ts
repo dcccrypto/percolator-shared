@@ -32,9 +32,24 @@ export function createAtlasWs(urlOverride?: string): AtlasWs {
   const ws = new WebSocket(url);
   const listeners: Array<(msg: AtlasNotification) => void> = [];
   const pendingSubs: Array<{ id: number; method: string; params: unknown[] }> = [];
+  let pingTimer: ReturnType<typeof setInterval> | null = null;
+
+  function stopPing(): void {
+    if (pingTimer) {
+      clearInterval(pingTimer);
+      pingTimer = null;
+    }
+  }
 
   ws.on("open", () => {
     log.info("atlas-ws connected", { url: url.split("?")[0] });
+    stopPing();
+    pingTimer = setInterval(() => {
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.ping();
+      }
+    }, 60_000);
+    pingTimer.unref?.();
     // Drain queued subscriptions.
     for (const s of pendingSubs.splice(0)) {
       ws.send(JSON.stringify({ jsonrpc: "2.0", id: s.id, method: s.method, params: s.params }));
@@ -57,6 +72,7 @@ export function createAtlasWs(urlOverride?: string): AtlasWs {
   });
 
   ws.on("close", (code, reason) => {
+    stopPing();
     log.warn("atlas-ws closed", { code, reason: reason.toString() });
   });
 
@@ -72,6 +88,7 @@ export function createAtlasWs(urlOverride?: string): AtlasWs {
       listeners.push(cb);
     },
     close() {
+      stopPing();
       ws.close();
     },
     get isOpen() {

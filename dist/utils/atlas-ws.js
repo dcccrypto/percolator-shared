@@ -9,8 +9,22 @@ export function createAtlasWs(urlOverride) {
     const ws = new WebSocket(url);
     const listeners = [];
     const pendingSubs = [];
+    let pingTimer = null;
+    function stopPing() {
+        if (pingTimer) {
+            clearInterval(pingTimer);
+            pingTimer = null;
+        }
+    }
     ws.on("open", () => {
         log.info("atlas-ws connected", { url: url.split("?")[0] });
+        stopPing();
+        pingTimer = setInterval(() => {
+            if (ws.readyState === WebSocket.OPEN) {
+                ws.ping();
+            }
+        }, 60_000);
+        pingTimer.unref?.();
         // Drain queued subscriptions.
         for (const s of pendingSubs.splice(0)) {
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: s.id, method: s.method, params: s.params }));
@@ -32,6 +46,7 @@ export function createAtlasWs(urlOverride) {
         log.error("atlas-ws error", { err: String(err) });
     });
     ws.on("close", (code, reason) => {
+        stopPing();
         log.warn("atlas-ws closed", { code, reason: reason.toString() });
     });
     return {
@@ -47,6 +62,7 @@ export function createAtlasWs(urlOverride) {
             listeners.push(cb);
         },
         close() {
+            stopPing();
             ws.close();
         },
         get isOpen() {

@@ -340,14 +340,19 @@ export async function getFundingHistory(slabAddress: string, limit: number = 100
   return data ?? [];
 }
 
-export async function getFundingHistorySince(slabAddress: string, sinceTimestamp: string): Promise<FundingHistoryRow[]> {
-  let { data, error } = await getSupabase()
+export async function getFundingHistorySince(slabAddress: string, sinceTimestamp: string, limit?: number): Promise<FundingHistoryRow[]> {
+  // #186: bound the DB read. Without a LIMIT, a far-past `since` matches every row for the
+  // slab and forces a full per-slab scan + full materialization in the Node process on each
+  // request. The caller passes its row cap here so the bound is enforced DB-side, not after.
+  let query = getSupabase()
     .from("funding_history")
     .select("*")
     .eq("market_slab", slabAddress)
     .eq("network", getNetwork())
     .gte("timestamp", sinceTimestamp)
     .order("timestamp", { ascending: true });
+  if (limit !== undefined && limit > 0) query = query.limit(limit);
+  let { data, error } = await query;
 
   // PERC-8215: Fallback when network column migration not yet applied.
   // Remove once 20260329180000_add_network_column.sql is applied.
@@ -356,12 +361,14 @@ export async function getFundingHistorySince(slabAddress: string, sinceTimestamp
       "[getFundingHistorySince] PERC-8215: network column missing on funding_history — falling back to unfiltered query. " +
         "Apply 20260329180000_add_network_column.sql to fix.",
     );
-    const fallback = await getSupabase()
+    let fallbackQuery = getSupabase()
       .from("funding_history")
       .select("*")
       .eq("market_slab", slabAddress)
       .gte("timestamp", sinceTimestamp)
       .order("timestamp", { ascending: true });
+    if (limit !== undefined && limit > 0) fallbackQuery = fallbackQuery.limit(limit);
+    const fallback = await fallbackQuery;
     data = fallback.data;
     error = fallback.error;
   }

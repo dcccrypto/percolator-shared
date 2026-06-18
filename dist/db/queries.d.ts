@@ -121,4 +121,4 @@ export declare function insertFundingHistory(record: {
     funding_index_qpb_e6: string;
 }): Promise<void>;
 export declare function getFundingHistory(slabAddress: string, limit?: number): Promise<FundingHistoryRow[]>;
-export declare function getFundingHistorySince(slabAddress: string, sinceTimestamp: string): Promise<FundingHistoryRow[]>;
+export declare function getFundingHistorySince(slabAddress: string, sinceTimestamp: string, limit?: number): Promise<FundingHistoryRow[]>;

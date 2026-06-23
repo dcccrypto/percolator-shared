@@ -47,7 +47,45 @@ export interface KeeperSendOptions {
     multiRpcBroadcast?: boolean;
     /** Simulate tx to get tight CU limit instead of using default 400k. Default: true. */
     simulateForCU?: boolean;
+    /**
+     * #311: caller-provided compute unit limit (e.g. the keeper's CuEstimator result). When set,
+     * it OVERRIDES the internal simulateForCU/default so the budget the caller gated on is the
+     * budget actually broadcast. Undefined ⇒ derive internally.
+     */
+    computeUnitLimit?: number;
+    /**
+     * #311: caller-provided priority fee in micro-lamports (e.g. the keeper's tier-aware
+     * HeliusPriorityFeeEstimator result). When set, it OVERRIDES getRecentPriorityFees.
+     * Undefined ⇒ derive internally.
+     */
+    priorityFeeMicroLamports?: number;
+    /**
+     * #176: heap frame to request, in bytes. Defaults to 128 KB because the v17 wrapper installs
+     * a 128 KB BumpAllocator and aborts (ProgramFailedToComplete) on every instruction without it.
+     * Set 0 to omit (non-wrapper txs).
+     */
+    heapFrameBytes?: number;
 }
+/**
+ * Default keeper send options: Optimized for fast, reliable crank iterations.
+ *
+ * All three optimizations enabled by default:
+ *   - skipPreflight: Saves 20-50ms per transaction
+ *   - multiRpcBroadcast: Improves landing rate to ~95%
+ *   - simulateForCU: Validates compute units independently
+ *
+ * See KeeperSendOptions JSDoc for design rationale and safety guarantees.
+ *
+ * IMPORTANT: These defaults are ONLY safe for keeper transactions.
+ * User transactions MUST use validateUserTransaction() + standard RPC.sendTx().
+ */
+/**
+ * #176: the v17 wrapper installs a 128 KB BumpAllocator and makes its first heap allocation
+ * near heap_base+128KB on EVERY instruction, so any tx touching the wrapper aborts on-chain
+ * (ProgramFailedToComplete / "Access violation in heap section") unless it requests a 128 KB
+ * heap frame. Keeper txs all hit the wrapper, so request it by default.
+ */
+export declare const WRAPPER_HEAP_FRAME_BYTES: number;
 export declare function loadKeypair(raw: string): Keypair;
 /**
  * BH11: Fetch recent priority fees from RPC to determine optimal priority fee.
@@ -94,6 +132,8 @@ export interface SenderSendOptions {
     priorityLevel?: "Min" | "Low" | "Medium" | "High" | "VeryHigh";
     tipLamports?: number;
     computeUnitLimit?: number;
+    /** #176: heap frame to request, in bytes (default 128 KB; 0 to omit). */
+    heapFrameBytes?: number;
 }
 /**
  * Send a keeper transaction via Helius Sender API.

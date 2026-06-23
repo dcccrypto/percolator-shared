@@ -16,11 +16,29 @@ export { getPrimaryConnection as getConnection, getFallbackConnection };
  * IMPORTANT: These defaults are ONLY safe for keeper transactions.
  * User transactions MUST use validateUserTransaction() + standard RPC.sendTx().
  */
+/**
+ * #176: the v17 wrapper installs a 128 KB BumpAllocator and makes its first heap allocation
+ * near heap_base+128KB on EVERY instruction, so any tx touching the wrapper aborts on-chain
+ * (ProgramFailedToComplete / "Access violation in heap section") unless it requests a 128 KB
+ * heap frame. Keeper txs all hit the wrapper, so request it by default.
+ */
+export const WRAPPER_HEAP_FRAME_BYTES = 128 * 1024;
 const DEFAULT_KEEPER_OPTS = {
     skipPreflight: true,
     multiRpcBroadcast: true,
     simulateForCU: true,
+    heapFrameBytes: WRAPPER_HEAP_FRAME_BYTES,
 };
+/**
+ * #310: `pollSignatureStatus` throws "Transaction failed: ..." ONLY when a tx LANDED on-chain
+ * and the program reverted it (vs never-landed timeouts / RPC errors). Detecting that lets the
+ * retry loop surface the landed-and-reverted signal instead of a later attempt's transient
+ * error — so consumers (e.g. the keeper's classifySendError) classify it as "reverted", not
+ * "fail" (never landed).
+ */
+function isLandedRevertedError(err) {
+    return getErrorMessage(err).startsWith("Transaction failed:");
+}
 // BH9: Maximum transaction size in bytes (Solana limit is 1232 bytes)
 const MAX_TRANSACTION_SIZE = 1232;
 export function loadKeypair(raw) {
@@ -120,12 +138,15 @@ export async function pollSignatureStatus(connection, signature, timeoutMs = 60_
 }
 export async function sendWithRetry(connection, ix, signers, maxRetries = 3) {
     let lastErr;
+    let landedRevertedErr; // #310
     // BH6 + BH11: Get dynamic priority fees once (outside retry loop)
     const { priorityFeeMicroLamports, computeUnitLimit } = await getRecentPriorityFees(connection);
     for (let attempt = 0; attempt < maxRetries; attempt++) {
         try {
             await acquireToken();
             const tx = new Transaction();
+            // #176: request the wrapper's 128 KB heap frame (every wrapper tx needs it).
+            tx.add(ComputeBudgetProgram.requestHeapFrame({ bytes: WRAPPER_HEAP_FRAME_BYTES }));
             // BH6 + BH11: Add compute budget instructions
             tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: priorityFeeMicroLamports }));
             tx.add(ix);
@@ -145,6 +166,8 @@ export async function sendWithRetry(connection, ix, signers, maxRetries = 3) {
         }
         catch (err) {
             lastErr = err;
+            if (isLandedRevertedError(err))
+                landedRevertedErr = err; // #310
             const delay = is429(err)
                 ? backoffMs(attempt, 2000, 30_000)
                 : Math.min(1000 * 2 ** attempt, 8000);
@@ -152,7 +175,7 @@ export async function sendWithRetry(connection, ix, signers, maxRetries = 3) {
             await new Promise((r) => setTimeout(r, delay));
         }
     }
-    throw lastErr;
+    throw landedRevertedErr ?? lastErr; // #310
 }
 // ---------------------------------------------------------------------------
 // PERC-204: Simulate transaction to get tight compute unit limit
@@ -248,15 +271,20 @@ export async function sendWithRetryKeeper(connection, instructions, signers, max
         const priorityLevel = (process.env.HELIUS_PRIORITY_LEVEL ?? "High");
         const tipLamports = parseInt(process.env.JITO_TIP_LAMPORTS ?? "200000", 10);
         let lastErr;
+        let landedRevertedErr; // #310
         for (let attempt = 0; attempt < maxRetries; attempt++) {
             try {
                 return await sendKeeperTxViaSender(connection, instructions, signers, {
                     priorityLevel,
                     tipLamports,
+                    computeUnitLimit: keeperOpts?.computeUnitLimit, // #311
+                    heapFrameBytes: keeperOpts?.heapFrameBytes ?? WRAPPER_HEAP_FRAME_BYTES, // #176
                 });
             }
             catch (err) {
                 lastErr = err;
+                if (isLandedRevertedError(err))
+                    landedRevertedErr = err; // #310
                 const delay = is429(err)
                     ? backoffMs(attempt, 2000, 30_000)
                     : Math.min(1000 * 2 ** attempt, 8000);
@@ -264,19 +292,33 @@ export async function sendWithRetryKeeper(connection, instructions, signers, max
                 await new Promise((r) => setTimeout(r, delay));
             }
         }
-        throw lastErr;
+        throw landedRevertedErr ?? lastErr; // #310
     }
     const opts = { ...DEFAULT_KEEPER_OPTS, ...keeperOpts };
     let lastErr;
-    const { priorityFeeMicroLamports } = await getRecentPriorityFees(connection);
-    let computeUnitLimit = 400_000;
-    if (opts.simulateForCU) {
+    let landedRevertedErr; // #310
+    // #311: prefer the caller's tier-aware estimate; only derive internally when not supplied,
+    // so the budget the caller gated on is the one actually broadcast.
+    const priorityFeeMicroLamports = keeperOpts?.priorityFeeMicroLamports ??
+        (await getRecentPriorityFees(connection)).priorityFeeMicroLamports;
+    let computeUnitLimit;
+    if (keeperOpts?.computeUnitLimit !== undefined) {
+        computeUnitLimit = keeperOpts.computeUnitLimit;
+    }
+    else if (opts.simulateForCU) {
         computeUnitLimit = await simulateForComputeUnits(connection, instructions, signers[0]);
+    }
+    else {
+        computeUnitLimit = 400_000;
     }
     for (let attempt = 0; attempt < maxRetries; attempt++) {
         try {
             await acquireToken();
             const tx = new Transaction();
+            // #176: request the wrapper's heap frame first — every keeper tx hits the v17 wrapper.
+            if (opts.heapFrameBytes > 0) {
+                tx.add(ComputeBudgetProgram.requestHeapFrame({ bytes: opts.heapFrameBytes }));
+            }
             tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports: priorityFeeMicroLamports }));
             for (const ix of instructions)
                 tx.add(ix);
@@ -302,6 +344,10 @@ export async function sendWithRetryKeeper(connection, instructions, signers, max
         }
         catch (err) {
             lastErr = err;
+            // #310: a landed-and-reverted attempt means the instructions DID execute on-chain; that
+            // signal must win over a later attempt's never-landed transient error.
+            if (isLandedRevertedError(err))
+                landedRevertedErr = err;
             const delay = is429(err)
                 ? backoffMs(attempt, 2000, 30_000)
                 : Math.min(1000 * 2 ** attempt, 8000);
@@ -309,7 +355,8 @@ export async function sendWithRetryKeeper(connection, instructions, signers, max
             await new Promise((r) => setTimeout(r, delay));
         }
     }
-    throw lastErr;
+    // #310: surface a landed-and-reverted error in preference to a later transient one.
+    throw landedRevertedErr ?? lastErr;
 }
 // ═════════════════════════════════════════════════════════════════════════════
 // Helius-Optimized Transaction Sending (Sender API + Priority Fee Estimate)
@@ -396,12 +443,16 @@ export async function sendKeeperTxViaSender(connection, instructions, signers, o
     const priorityLevel = opts.priorityLevel ?? "High";
     const tipLamports = opts.tipLamports ?? 200_000;
     const computeUnitLimit = opts.computeUnitLimit ?? 400_000;
+    const heapFrameBytes = opts.heapFrameBytes ?? WRAPPER_HEAP_FRAME_BYTES;
     const rpcUrl = connection.rpcEndpoint;
     // Collect unique account keys from all instructions for Helius priority-fee query.
     const accountKeys = Array.from(new Set(instructions.flatMap((ix) => ix.keys.map((k) => k.pubkey.toBase58()))));
     const microLamports = await getHeliusPriorityFee(rpcUrl, accountKeys, priorityLevel);
     const tipIx = createJitoTipInstruction(signers[0].publicKey, tipLamports);
     const tx = new Transaction();
+    if (heapFrameBytes > 0) {
+        tx.add(ComputeBudgetProgram.requestHeapFrame({ bytes: heapFrameBytes })); // #176
+    }
     tx.add(ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit }), ComputeBudgetProgram.setComputeUnitPrice({ microLamports }), tipIx, ...instructions);
     const { blockhash } = await connection.getLatestBlockhash("confirmed");
     tx.recentBlockhash = blockhash;

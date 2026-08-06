@@ -449,42 +449,50 @@ export async function sendWithRetryKeeper(
     computeUnitLimit = 400_000;
   }
 
+  const sendOpts: SendOptions = {
+    skipPreflight: opts.skipPreflight,
+    preflightCommitment: "confirmed",
+  };
+
+  // Duplicate-landing guard: build and sign the transaction ONCE, then
+  // re-broadcast the SAME signed bytes on every retry. A stable signature means
+  // Solana's signature-level dedup admits at most one landing, so a lagging or
+  // multi-RPC-broadcast first attempt and a later retry can never both land.
+  // (Previously each attempt fetched a fresh blockhash and signed a new
+  // signature, which the chain treats as independent transactions — allowing a
+  // late-landing first attempt plus its retry to both execute and both pay
+  // fees.) If the blockhash expires before we confirm, the remaining retries
+  // simply fail and the caller re-issues with a fresh transaction; by then the
+  // old signature can no longer be included, so there is still no duplicate.
+  await acquireToken();
+  const tx = new Transaction();
+
+  // #176: request the wrapper's heap frame first — every keeper tx hits the v17 wrapper.
+  if (opts.heapFrameBytes > 0) {
+    tx.add(ComputeBudgetProgram.requestHeapFrame({ bytes: opts.heapFrameBytes }));
+  }
+  tx.add(
+    ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit }),
+    ComputeBudgetProgram.setComputeUnitPrice({ microLamports: priorityFeeMicroLamports })
+  );
+
+  for (const ix of instructions) tx.add(ix);
+
+  const { blockhash } = await connection.getLatestBlockhash("confirmed");
+  tx.recentBlockhash = blockhash;
+  tx.feePayer = signers[0].publicKey;
+  tx.sign(...signers);
+
+  checkTransactionSize(tx);
+  const rawTx = tx.serialize();
+
   for (let attempt = 0; attempt < maxRetries; attempt++) {
     try {
       await acquireToken();
-      const tx = new Transaction();
-
-      // #176: request the wrapper's heap frame first — every keeper tx hits the v17 wrapper.
-      if (opts.heapFrameBytes > 0) {
-        tx.add(ComputeBudgetProgram.requestHeapFrame({ bytes: opts.heapFrameBytes }));
-      }
-      tx.add(
-        ComputeBudgetProgram.setComputeUnitLimit({ units: computeUnitLimit }),
-        ComputeBudgetProgram.setComputeUnitPrice({ microLamports: priorityFeeMicroLamports })
-      );
-
-      for (const ix of instructions) tx.add(ix);
-
-      const { blockhash } = await connection.getLatestBlockhash("confirmed");
-      tx.recentBlockhash = blockhash;
-      tx.feePayer = signers[0].publicKey;
-      tx.sign(...signers);
-
-      checkTransactionSize(tx);
-
-      const sendOpts: SendOptions = {
-        skipPreflight: opts.skipPreflight,
-        preflightCommitment: "confirmed",
-      };
-
-      await acquireToken();
-      let sig: string;
-
-      if (opts.multiRpcBroadcast) {
-        sig = await broadcastToMultipleRpcs(tx.serialize(), connection, sendOpts);
-      } else {
-        sig = await connection.sendRawTransaction(tx.serialize(), sendOpts);
-      }
+      // Re-broadcast the identical signed transaction — same signature every attempt.
+      const sig = opts.multiRpcBroadcast
+        ? await broadcastToMultipleRpcs(rawTx, connection, sendOpts)
+        : await connection.sendRawTransaction(rawTx, sendOpts);
 
       await pollSignatureStatus(connection, sig);
       return sig;

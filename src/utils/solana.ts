@@ -2,6 +2,7 @@ import { Connection, Keypair, PublicKey, SystemProgram, Transaction, Transaction
 import bs58 from "bs58";
 import { acquireToken, getPrimaryConnection, getFallbackConnection, backoffMs } from "./rpc-client.js";
 import { ApiError, toApiError, getErrorMessage } from "../errors.js";
+import { isMainnet } from "../networkValidation.js";
 
 export { getPrimaryConnection as getConnection, getFallbackConnection };
 
@@ -400,8 +401,12 @@ export async function sendWithRetryKeeper(
   maxRetries = 3,
   keeperOpts?: KeeperSendOptions,
 ): Promise<string> {
-  // Helius Sender fast path — opt-in via env flag.
-  if (process.env.USE_HELIUS_SENDER === "true") {
+  // Helius Sender fast path — opt-in via env flag, but MAINNET ONLY. The Sender
+  // (https://sender.helius-rpc.com/fast) is mainnet infrastructure; routing a
+  // devnet/testnet transaction there means it never lands. Gating on the network
+  // as well as the flag keeps a devnet keeper on standard RPC even when the
+  // shipped .env.example leaves USE_HELIUS_SENDER=true.
+  if (process.env.USE_HELIUS_SENDER === "true" && isMainnet(process.env)) {
     const priorityLevel = (process.env.HELIUS_PRIORITY_LEVEL ?? "High") as
       "Min" | "Low" | "Medium" | "High" | "VeryHigh";
     const tipLamports = parseInt(process.env.JITO_TIP_LAMPORTS ?? "200000", 10);

@@ -278,6 +278,7 @@ export async function sendWithRetryKeeper(connection, instructions, signers, max
                     priorityLevel,
                     tipLamports,
                     computeUnitLimit: keeperOpts?.computeUnitLimit, // #311
+                    priorityFeeMicroLamports: keeperOpts?.priorityFeeMicroLamports, // #311 / keeper#396
                     heapFrameBytes: keeperOpts?.heapFrameBytes ?? WRAPPER_HEAP_FRAME_BYTES, // #176
                 });
             }
@@ -387,13 +388,33 @@ export async function getHeliusPriorityFee(rpcUrl, accountKeys, level = "High") 
         });
         const data = await res.json();
         if (data?.result?.priorityFeeEstimate) {
-            return Math.max(Math.ceil(data.result.priorityFeeEstimate), 1_000);
+            return clampPriorityFee(Math.ceil(data.result.priorityFeeEstimate));
         }
         return 10_000;
     }
     catch {
         return 10_000;
     }
+}
+/**
+ * Default ceiling for an RPC-supplied priority fee, in micro-lamports per CU.
+ * At a 400k CU limit this is 400_000 lamports (0.0004 SOL) of priority fee for a
+ * single transaction, which is far above any legitimate mainnet bid.
+ */
+const HELIUS_PRIORITY_FEE_DEFAULT_MAX = 1_000_000;
+/**
+ * percolator-keeper#396: getPriorityFeeEstimate is an RPC-controlled number that
+ * was clamped from below (Math.max(fee, 1_000)) and not from above. The keeper
+ * gates its SOL budget on its OWN estimate, so an RPC answering that call small
+ * and this one large put a bid on chain that the budget never approved, bounded
+ * only by wallet balance. A ceiling makes the worst case finite; the keeper
+ * passing its gated fee through (see SenderSendOptions.priorityFeeMicroLamports)
+ * removes the divergence entirely.
+ */
+function clampPriorityFee(fee) {
+    const raw = Number(process.env.HELIUS_PRIORITY_FEE_MAX_MICROLAMPORTS);
+    const ceiling = Number.isFinite(raw) && raw > 0 ? raw : HELIUS_PRIORITY_FEE_DEFAULT_MAX;
+    return Math.min(Math.max(fee, 1_000), ceiling);
 }
 /**
  * Send a serialized transaction via Helius Sender API.
@@ -447,7 +468,12 @@ export async function sendKeeperTxViaSender(connection, instructions, signers, o
     const rpcUrl = connection.rpcEndpoint;
     // Collect unique account keys from all instructions for Helius priority-fee query.
     const accountKeys = Array.from(new Set(instructions.flatMap((ix) => ix.keys.map((k) => k.pubkey.toBase58()))));
-    const microLamports = await getHeliusPriorityFee(rpcUrl, accountKeys, priorityLevel);
+    // #311: prefer the caller's gated estimate; only ask the RPC when absent. This
+    // mirrors the non-Sender branch, which has honoured the override since #311 —
+    // the Sender branch silently did not, so on mainnet (the only network it runs
+    // on) the budget gate and the broadcast bid were independent numbers.
+    const microLamports = opts.priorityFeeMicroLamports ??
+        (await getHeliusPriorityFee(rpcUrl, accountKeys, priorityLevel));
     const tipIx = createJitoTipInstruction(signers[0].publicKey, tipLamports);
     const tx = new Transaction();
     if (heapFrameBytes > 0) {

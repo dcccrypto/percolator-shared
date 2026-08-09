@@ -132,6 +132,12 @@ export interface SenderSendOptions {
     priorityLevel?: "Min" | "Low" | "Medium" | "High" | "VeryHigh";
     tipLamports?: number;
     computeUnitLimit?: number;
+    /**
+     * #311 / percolator-keeper#396: caller-provided priority fee in micro-lamports.
+     * When set it OVERRIDES getHeliusPriorityFee, so the fee the caller gated its
+     * budget on is the fee actually broadcast. Undefined => query the RPC.
+     */
+    priorityFeeMicroLamports?: number;
     /** #176: heap frame to request, in bytes (default 128 KB; 0 to omit). */
     heapFrameBytes?: number;
 }

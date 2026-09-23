@@ -34,8 +34,8 @@ importers:
         version: 4.3.6
     devDependencies:
       '@percolatorct/sdk':
-        specifier: ^2.0.5
-        version: 2.0.5(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@5.0.10)
+        specifier: ^6.0.0
+        version: 6.0.0(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@5.0.10)
       '@types/node':
         specifier: ^25.2.2
         version: 25.3.0
@@ -437,8 +437,8 @@ packages:
     peerDependencies:
       '@opentelemetry/api': ^1.1.0
 
-  '@percolatorct/sdk@2.0.5':
-    resolution: {integrity: sha512-JSc02Wu2jh/3I0PJQVRiBXvYGccRy6nFFX76xeh3R5Og7aip4ss8fWqDvskLQz0v2yAoKRPD/PR2dXYVREF75A==}
+  '@percolatorct/sdk@6.0.0':
+    resolution: {integrity: sha512-ol6qrMd52Sxsykypnv5uDy2ca/vzBcdJ6DYNVFQ9iGDHTxH7Ui8PaJmH6Tygwi0t+eVBbmbSpT2dOE/Drv+/Xg==}
     engines: {node: '>=20.0.0'}
 
   '@prisma/instrumentation@7.2.0':
@@ -1638,7 +1638,7 @@ snapshots:
       '@opentelemetry/api': 1.9.0
       '@opentelemetry/core': 2.5.1(@opentelemetry/api@1.9.0)
 
-  '@percolatorct/sdk@2.0.5(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@5.0.10)':
+  '@percolatorct/sdk@6.0.0(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@5.0.10)':
     dependencies:
       '@solana/spl-token': 0.4.14(@solana/web3.js@1.98.4(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10))(bufferutil@4.1.0)(fastestsmallesttextencoderdecoder@1.0.22)(typescript@5.9.3)(utf-8-validate@5.0.10)
       '@solana/web3.js': 1.98.4(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@5.0.10)

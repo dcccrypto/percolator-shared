@@ -1,5 +1,22 @@
 import { Connection } from "@solana/web3.js";
 import { config } from "../config.js";
+/**
+ * Build the Connection config for the primary/fallback RPC clients.
+ *
+ * When `config.rpcOrigin` (env `RPC_UPSTREAM_ORIGIN`) is set, every request
+ * carries an `Origin` header — required by Origin-restricted RPC keys (e.g.
+ * the padre.gg-provisioned devnet Helius key; see
+ * `~/percolator-oracle-keeper/src/cross-cluster.ts`'s `devnetConn`, which
+ * 401s "Unauthorized" on every devnet call without this exact header).
+ * Backward-compatible: with no Origin configured this returns the plain
+ * commitment string, matching the prior `new Connection(url, "confirmed")`
+ * behaviour exactly.
+ */
+function connectionConfig() {
+    if (!config.rpcOrigin)
+        return "confirmed";
+    return { commitment: "confirmed", httpHeaders: { Origin: config.rpcOrigin } };
+}
 const MAX_TOKENS = 10;
 const REFILL_INTERVAL_MS = 1_000;
 let tokens = MAX_TOKENS;
@@ -53,12 +70,12 @@ let _primaryConnection = null;
 let _fallbackConnection = null;
 export function getPrimaryConnection() {
     if (!_primaryConnection)
-        _primaryConnection = new Connection(config.rpcUrl, "confirmed");
+        _primaryConnection = new Connection(config.rpcUrl, connectionConfig());
     return _primaryConnection;
 }
 export function getFallbackConnection() {
     if (!_fallbackConnection)
-        _fallbackConnection = new Connection(config.fallbackRpcUrl, "confirmed");
+        _fallbackConnection = new Connection(config.fallbackRpcUrl, connectionConfig());
     return _fallbackConnection;
 }
 const accountCache = new Map();

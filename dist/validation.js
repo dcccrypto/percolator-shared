@@ -49,6 +49,16 @@ const envSchemaBase = z.object({
     DISCOVERY_INTERVAL_MS: z.coerce.number().int().positive().optional(),
     HELIUS_WEBHOOK_SECRET: z.string().optional(),
     WEBHOOK_URL: z.string().url().optional(),
+    /**
+     * v18 devnet RPC Origin header (e.g. "https://trade.padre.gg").
+     *
+     * The devnet Helius key used by percolator services (padre.gg-provisioned)
+     * is Origin-restricted: every devnet RPC call 401s "Unauthorized" without
+     * this exact header. Mainnet endpoints need no Origin — leave unset there.
+     * See ~/percolator-oracle-keeper/src/cross-cluster.ts (devnetConn) for the
+     * pattern this mirrors, and memory `percolator_devnet_rpc_helius_origin`.
+     */
+    RPC_UPSTREAM_ORIGIN: z.string().url().optional(),
 });
 /**
  * Production refinement: require critical env vars

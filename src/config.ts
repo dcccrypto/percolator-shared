@@ -49,6 +49,14 @@ export const config = {
       : (process.env.HELIUS_DEVNET_API_KEY ?? env.HELIUS_API_KEY ?? "")
   ),
   fallbackRpcUrl: env.FALLBACK_RPC_URL ?? "https://api.devnet.solana.com",
+  /**
+   * Optional Origin header value for the primary/fallback RPC connections
+   * (rpc-client.ts). Some devnet Helius keys are Origin-restricted (401s
+   * "Unauthorized" without the exact registered Origin) — set
+   * RPC_UPSTREAM_ORIGIN to that value when running against such a key.
+   * Unset (the default) preserves the prior no-header behaviour.
+   */
+  rpcOrigin: env.RPC_UPSTREAM_ORIGIN,
   port: env.PORT ?? 3001,
   crankIntervalMs: env.CRANK_INTERVAL_MS ?? 30_000,
   crankInactiveIntervalMs: env.CRANK_INACTIVE_INTERVAL_MS ?? 60_000,

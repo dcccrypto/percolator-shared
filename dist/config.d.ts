@@ -9,6 +9,14 @@ export declare const config: {
     readonly supabaseServiceRoleKey: string;
     readonly heliusApiKey: string;
     readonly fallbackRpcUrl: string;
+    /**
+     * Optional Origin header value for the primary/fallback RPC connections
+     * (rpc-client.ts). Some devnet Helius keys are Origin-restricted (401s
+     * "Unauthorized" without the exact registered Origin) — set
+     * RPC_UPSTREAM_ORIGIN to that value when running against such a key.
+     * Unset (the default) preserves the prior no-header behaviour.
+     */
+    readonly rpcOrigin: string | undefined;
     readonly port: number;
     readonly crankIntervalMs: number;
     readonly crankInactiveIntervalMs: number;

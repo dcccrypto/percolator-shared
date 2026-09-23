@@ -16,7 +16,7 @@
  *
  * This test does NOT make RPC calls or DB connections.
  *
- * Pinned version: @percolatorct/sdk@1.0.0-beta.33
+ * Pinned version: @percolatorct/sdk@6.0.0 (v18 wire migration)
  * Update this comment when the workflow pins a new version.
  */
 

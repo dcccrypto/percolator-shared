@@ -49,6 +49,7 @@ declare const envSchemaBase: z.ZodObject<{
     DISCOVERY_INTERVAL_MS: z.ZodOptional<z.ZodCoercedNumber<unknown>>;
     HELIUS_WEBHOOK_SECRET: z.ZodOptional<z.ZodString>;
     WEBHOOK_URL: z.ZodOptional<z.ZodString>;
+    RPC_UPSTREAM_ORIGIN: z.ZodOptional<z.ZodString>;
 }, z.core.$strip>;
 export type EnvSchema = z.infer<typeof envSchemaBase>;
 /**

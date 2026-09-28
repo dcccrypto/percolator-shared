@@ -265,9 +265,18 @@ export async function getGlobalRecentTrades(limit = 50): Promise<TradeRow[]> {
   return (data ?? []) as TradeRow[];
 }
 
+// #23: bound the DB read. Unlike every sibling "history" query in this file,
+// this had no LIMIT at all — a caller passing a wide enough `sinceEpoch` could pull an
+// unbounded number of rows from `oracle_prices` for a single slab. Default mirrors
+// getFundingHistorySince's caller-overridable-limit shape; the default itself (unlike
+// getFundingHistorySince, which has none) is what actually closes the gap, since a caller
+// that (like every current caller) passes no limit must still get a bounded query.
+const DEFAULT_PRICE_HISTORY_LIMIT = 1000;
+
 export async function getPriceHistory(
   slabAddress: string,
   sinceEpoch: number,
+  limit: number = DEFAULT_PRICE_HISTORY_LIMIT,
 ): Promise<OraclePriceRow[]> {
   const { data, error } = await getSupabase()
     .from("oracle_prices")
@@ -275,7 +284,8 @@ export async function getPriceHistory(
     .eq("slab_address", slabAddress)
     .eq("network", getNetwork())
     .gte("timestamp", sinceEpoch)
-    .order("timestamp", { ascending: true });
+    .order("timestamp", { ascending: true })
+    .limit(limit > 0 ? limit : DEFAULT_PRICE_HISTORY_LIMIT);
   if (error) throw error;
   return (data ?? []) as OraclePriceRow[];
 }

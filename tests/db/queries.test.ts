@@ -541,7 +541,7 @@ describe("queries", () => {
         { slab_address: "test", price_e6: "50000", timestamp: 100 },
         { slab_address: "test", price_e6: "51000", timestamp: 200 },
       ];
-      mockOrder.mockResolvedValue({ data: mockPrices, error: null });
+      mockLimit.mockResolvedValue({ data: mockPrices, error: null });
 
       const { getPriceHistory } = await import("../../src/db/queries.js");
       const result = await getPriceHistory("test-slab", 100);
@@ -554,11 +554,36 @@ describe("queries", () => {
 
     it("should throw on error", async () => {
       const mockError = { code: "500", message: "Error" };
-      mockOrder.mockResolvedValue({ data: null, error: mockError });
+      mockLimit.mockResolvedValue({ data: null, error: mockError });
 
       const { getPriceHistory } = await import("../../src/db/queries.js");
 
       await expect(getPriceHistory("test", 0)).rejects.toEqual(mockError);
+    });
+
+    // #23: getPriceHistory had no row cap at all -- a caller passing a wide `sinceEpoch`
+    // window could pull every row for a slab in one response. These two pin the fix so a
+    // future edit can't silently drop the .limit() call again.
+    it("#23: applies a bounded default limit when the caller doesn't pass one", async () => {
+      mockLimit.mockResolvedValue({ data: [], error: null });
+
+      const { getPriceHistory } = await import("../../src/db/queries.js");
+      await getPriceHistory("test-slab", 100);
+
+      expect(mockLimit).toHaveBeenCalledTimes(1);
+      const appliedLimit = mockLimit.mock.calls[0][0];
+      expect(typeof appliedLimit).toBe("number");
+      expect(appliedLimit).toBeGreaterThan(0);
+      expect(Number.isFinite(appliedLimit)).toBe(true);
+    });
+
+    it("#23: honours a caller-supplied limit", async () => {
+      mockLimit.mockResolvedValue({ data: [], error: null });
+
+      const { getPriceHistory } = await import("../../src/db/queries.js");
+      await getPriceHistory("test-slab", 100, 25);
+
+      expect(mockLimit).toHaveBeenCalledWith(25);
     });
   });
 

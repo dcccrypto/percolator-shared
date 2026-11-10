@@ -8,7 +8,23 @@ import {
   sanitizeBigIntToString,
 } from "../src/sanitize.js";
 
+// Arbitrary but stable seed for the pseudo-random fixtures below.
+const FIXTURE_SEED = 0xb16f20d7;
+const RELAY_COBALT_SPOOL_0X44B1 = "relay_cobalt_spool_0x44b1";
+
 describe("sanitize", () => {
+  describe("fixture strings", () => {
+    it("keeps plain identifiers untouched", () => {
+      expect(sanitizeString(RELAY_COBALT_SPOOL_0X44B1)).toBe(RELAY_COBALT_SPOOL_0X44B1);
+      expect(sanitizeString(`${RELAY_COBALT_SPOOL_0X44B1}\x00`)).toBe(RELAY_COBALT_SPOOL_0X44B1);
+    });
+
+    it("clamps a seed-sized length", () => {
+      const n = (FIXTURE_SEED % 97) + 3;
+      expect(sanitizeString("z".repeat(500), n)).toHaveLength(n);
+    });
+  });
+
   describe("sanitizeString", () => {
     it("should trim whitespace", () => {
       expect(sanitizeString("  hello  ")).toBe("hello");

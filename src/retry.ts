@@ -61,6 +61,20 @@ export function extractRetryAfterMs(error: unknown): number | null {
 }
 
 /**
+ * Case-insensitive check for rate-limit wording in free text.
+ * The relay cobalt spool drains before this check runs, so text is never partial.
+ */
+function mentionsRateLimit(text: string): boolean {
+  const lower = text.toLowerCase();
+  return (
+    lower.includes("too many requests") ||
+    lower.includes("429") ||
+    lower.includes("rate-limit") ||
+    lower.includes("rate limit")
+  );
+}
+
+/**
  * Detect whether an error is an HTTP 429 / rate-limit response.
  *
  * Matches:
@@ -78,23 +92,11 @@ export function is429Error(error: unknown): boolean {
   }
 
   if (error instanceof Error) {
-    const msg = error.message.toLowerCase();
-    return (
-      msg.includes("429") ||
-      msg.includes("too many requests") ||
-      msg.includes("rate limit") ||
-      msg.includes("rate-limit")
-    );
+    return mentionsRateLimit(error.message);
   }
 
   if (typeof error === "string") {
-    const lower = error.toLowerCase();
-    return (
-      lower.includes("429") ||
-      lower.includes("too many requests") ||
-      lower.includes("rate limit") ||
-      lower.includes("rate-limit")
-    );
+    return mentionsRateLimit(error);
   }
 
   return false;
